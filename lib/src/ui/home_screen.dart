@@ -24,7 +24,7 @@ class HomeScreen extends StatelessWidget {
     final GatewayStatus status = dashboard.gatewayStatus;
     return ScreenScaffold(
       title: 'Dashboard',
-      subtitle: controller.profile?.serverUrl,
+      subtitle: controller.profile?.endpointLabel,
       actions: <Widget>[
         IconButton(
           onPressed: controller.busy ? null : controller.refresh,
@@ -40,7 +40,7 @@ class HomeScreen extends StatelessWidget {
                 ? 'OpenClaw is reachable.'
                 : 'Gateway connection is degraded.',
             description: controller.lastUpdatedAt == null
-                ? 'Pull current session, device, and cron state from the active gateway profile.'
+                ? 'Pull current session, node pairing, and cron state from the active gateway profile.'
                 : 'Last refreshed at ${TimeOfDay.fromDateTime(controller.lastUpdatedAt!).format(context)}.',
           ),
           const SizedBox(height: 16),
@@ -49,6 +49,14 @@ class HomeScreen extends StatelessWidget {
               title: 'Refresh issue',
               message: controller.error!,
               tone: BannerTone.warning,
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (controller.connectionCheck != null) ...<Widget>[
+            StatusBanner(
+              title: 'Connection surfaces',
+              message:
+                  '${controller.connectionCheck!.message}\nHTTP ${controller.profile?.chatCompletionsUri}\nTools ${controller.profile?.toolsInvokeUri}\nWS ${controller.profile?.websocketUri}',
             ),
             const SizedBox(height: 16),
           ],
@@ -96,6 +104,10 @@ class HomeScreen extends StatelessWidget {
                     MetricChip(
                       label: 'Approvals',
                       value: '${status.pendingApprovals}',
+                    ),
+                    MetricChip(
+                      label: 'Auth',
+                      value: status.authenticated ? 'OK' : 'Denied',
                     ),
                     MetricChip(label: 'Jobs', value: '${status.runningJobs}'),
                   ],

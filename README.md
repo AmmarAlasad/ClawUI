@@ -1,67 +1,187 @@
 # ClawUI
 
-ClawUI is a Flutter mobile control surface for OpenClaw. This MVP focuses on a believable operator workflow: connect to a gateway, inspect health and sessions, chat through a service abstraction, review pending devices, inspect cron jobs, and tune app settings.
+ClawUI is a Flutter control surface for OpenClaw Gateway. This version keeps the existing app structure but replaces the old single-URL placeholder client with an explicit connection architecture built around documented gateway surfaces:
 
-## MVP Scope
+- Gateway WebSocket concept
+- HTTP `POST /v1/chat/completions`
+- HTTP `POST /tools/invoke`
 
-- Connect screen with saved gateway profile, auth mode selection, token/password inputs, and demo fallback toggle
-- Dashboard with gateway health, active sessions, connected device summary, and cron overview
-- Chat screen wired through a repository abstraction with a live HTTP client surface and demo fallback adapter
-- Devices screen for pending approvals and trusted devices
-- Cron screen for job health and schedule visibility
-- Settings screen for connection management and theme mode selection
-- Dark-friendly Material 3 theme with reusable cards, section headers, and metric chips
+## What Changed
+
+- Connection profiles now support:
+  - direct URL
+  - host/IP + port
+  - Tailscale / MagicDNS
+- Auth modes are explicit and limited to:
+  - token
+  - password
+- URL construction is normalized from one profile into:
+  - HTTP base origin
+  - WebSocket origin
+  - `/v1/chat/completions`
+  - `/tools/invoke`
+  - `/readyz`
+  - `/healthz`
+- The network repository no longer uses placeholder `/api/mobile/*` routes.
+- Dashboard/session/device/cron data now comes from documented gateway-compatible surfaces:
+  - `sessions_list` via `/tools/invoke`
+  - `nodes` actions via `/tools/invoke`
+  - `cron` actions via `/tools/invoke`
+  - chat via `/v1/chat/completions`
+- Device approval buttons now call the repository instead of being dead UI.
+
+## Connection Model
+
+The app stores a structured `ConnectionProfile` instead of a raw URL string.
+
+Profile fields:
+
+- `targetKind`: `directUrl`, `hostPort`, `tailscale`
+- `transportSecurity`: `tls`, `insecure`
+- `authMode`: `token`, `password`
+- endpoint inputs:
+  - `directUrl`
+  - or `host` + `port`
+- secret values:
+  - `token`
+  - `password`
+- `demoMode`
+
+Derived surfaces:
+
+- HTTP origin
+- Gateway WebSocket origin
+- chat completions endpoint
+- tools endpoint
+- readiness and health probes
+
+The connect screen now shows the derived HTTP and WS endpoints before saving.
+
+## Security Notes
+
+This repo now prefers explicitness over convenience:
+
+- Direct URLs are validated as origins only.
+  - No embedded credentials
+  - No path beyond `/`
+  - No query string
+  - No hash fragment
+- Host/IP and Tailscale profiles are normalized into canonical HTTP and WS origins.
+- Auth is never implicit.
+  - The app requires either a token or a password for live profiles
+- HTTP auth now matches the OpenClaw gateway behavior.
+  - Token and password are both sent as `Authorization: Bearer ...`
+  - Basic auth is not used
+- Insecure HTTP/WS is allowed only as an explicit choice.
+  - The UI warns that it should be limited to loopback or trusted tunnels
+- The profile store remains abstracted so secure storage can replace the current implementation later without changing the rest of the app.
+
+OpenClaw-specific deployment considerations reflected here:
+
+- Non-loopback Control UI deployments should use explicit `gateway.controlUi.allowedOrigins`
+- Avoid `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback` unless you are intentionally using break-glass behavior
+- Prefer HTTPS/WSS for Tailscale or MagicDNS endpoints
 
 ## Architecture
 
-The app is organized under `lib/src` with a small growth-oriented structure:
+`lib/src` remains organized by responsibility:
 
-- `app/`: bootstrap, top-level controller, app scope, navigation shell
-- `core/`: models, repository abstractions, HTTP client surface, local profile store, theme
-- `ui/`: feature screens and reusable presentation widgets
+- `app/`
+  - bootstrap
+  - controller
+  - inherited scope
+- `core/`
+  - models
+  - repository/router
+  - gateway HTTP adapters
+  - connection profile store
+  - theme
+- `ui/`
+  - connect
+  - dashboard
+  - chat
+  - devices
+  - cron
+  - settings
 
-State is owned by `AppController` and exposed through `AppScope`. The UI is wired to `OpenClawRepository`, which currently supports:
+Notable implementation changes:
 
-- `NetworkOpenClawRepository` for reasonable placeholder REST endpoints such as `/api/mobile/dashboard`
-- `DemoOpenClawRepository` for polished fallback behavior when the real API contract is incomplete or unavailable
+- `OpenClawRepository` now exposes:
+  - `fetchOverview`
+  - `testConnection`
+  - `approveDevice`
+  - `rejectDevice`
+  - `sendMessage`
+- `AppController.refresh()` now loads a single operator snapshot instead of making three unrelated placeholder calls
+- Common code no longer depends directly on `dart:io` for HTTP or profile persistence
+- Platform-specific profile stores and HTTP clients are selected with conditional imports
+
+## Web Support
+
+This repo now includes:
+
+- conditional profile storage:
+  - file-backed on IO platforms
+  - `localStorage` on web
+- conditional HTTP transport:
+  - `HttpClient` on IO platforms
+  - browser `HttpRequest` on web
+- minimal `web/` scaffolding so a future Flutter web run has the expected entry files
+
+This does not guarantee successful web builds in the current sandbox, but it removes some of the previous code-level blockers.
 
 ## Run
 
-This repo was set up in an offline-constrained environment, so only SDK-local code was added. To run locally on a normal machine:
+On a normal writable Flutter machine:
 
-1. Ensure Flutter stable is installed and writable.
-2. Restore/generate native folders if needed:
-   `flutter create . --platforms android,ios`
-3. Fetch dependencies:
-   `flutter pub get`
-4. Run the app:
-   `flutter run`
+1. `flutter pub get`
+2. `flutter run`
 
-## Current Limitations
+For web:
 
-- The exact OpenClaw mobile API contract is not yet defined, so the live client uses conservative placeholder endpoints and falls back to demo data cleanly.
-- The local profile store is file-backed for now. It is intentionally abstracted so it can be swapped for `shared_preferences` or secure storage later.
-- In this sandbox, the Flutter SDK wrapper under `/home/asapro/develop/flutter` is not writable, so `flutter pub get`, `flutter analyze`, `flutter create`, and full builds are blocked before they can acquire the SDK cache lockfile.
-- Native platform folders are still absent. On a writable machine with the Flutter SDK available, run `flutter create . --platforms android,ios` from the repo root to generate them without replacing `lib/`.
+1. `flutter pub get`
+2. `flutter run -d chrome`
+
+If native folders are still missing:
+
+1. `flutter create . --platforms android,ios,web`
+
+That should preserve `lib/` while generating platform scaffolding.
+
+## What Works Here
+
+Validated in this environment:
+
+- repository and UI refactor completed
+- formatter ran successfully with the embedded Dart SDK:
+  - `/home/asapro/develop/flutter/bin/cache/dart-sdk/bin/dart format lib test web`
+
+Partially validated:
+
+- `dart analyze` can be launched by forcing `HOME=/tmp`
+- without a resolved Flutter package config, analysis reports missing Flutter packages instead of meaningful source diagnostics
+
+Blocked here:
+
+- `flutter pub get`
+- `flutter analyze`
+- `flutter test`
+- `flutter run`
+- `flutter build`
+
+Reason:
+
+- the Flutter installation at `/home/asapro/develop/flutter` cannot update its cache stamp files in this sandbox
 
 ## Important Files
 
-- `lib/src/app/claw_ui_app.dart`
-- `lib/src/app/app_controller.dart`
+- `lib/src/core/models.dart`
 - `lib/src/core/openclaw_repository.dart`
 - `lib/src/core/profile_store.dart`
-- `lib/src/core/models.dart`
-- `lib/src/ui/app_shell.dart`
+- `lib/src/core/gateway_http_client.dart`
+- `lib/src/app/app_controller.dart`
 - `lib/src/ui/connect_screen.dart`
 - `lib/src/ui/home_screen.dart`
-- `.metadata`
-- `test/widget_test.dart`
-
-## Next Steps
-
-- Generate `android/` and `ios/` once the Flutter SDK can write its cache lockfile.
-- Run `flutter pub get`, `flutter analyze`, and `flutter test` in that environment.
-- Replace placeholder `/api/mobile/*` routes with the real OpenClaw contract
-- Move profile persistence to secure/mobile-native storage
-- Add command execution, approval actions, and richer dashboard telemetry
-- Add CI after native folders and dependency resolution are available
+- `lib/src/ui/settings_screen.dart`
+- `web/index.html`
+- `README.md`

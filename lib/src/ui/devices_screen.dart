@@ -77,14 +77,22 @@ class DevicesScreen extends StatelessWidget {
                       children: <Widget>[
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () {},
+                            onPressed: item.requestId == null
+                                ? null
+                                : () => AppScope.of(
+                                    context,
+                                  ).rejectDevice(item.requestId!),
                             child: const Text('Reject'),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: FilledButton(
-                            onPressed: () {},
+                            onPressed: item.requestId == null
+                                ? null
+                                : () => AppScope.of(
+                                    context,
+                                  ).approveDevice(item.requestId!),
                             child: const Text('Approve'),
                           ),
                         ),

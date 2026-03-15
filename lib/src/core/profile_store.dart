@@ -1,7 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'models.dart';
+import 'profile_store_factory_stub.dart'
+    if (dart.library.io) 'profile_store_factory_io.dart'
+    if (dart.library.html) 'profile_store_factory_web.dart'
+    as profile_store;
 
 abstract class ConnectionProfileStore {
   Future<ConnectionProfile?> load();
@@ -9,42 +12,15 @@ abstract class ConnectionProfileStore {
   Future<void> clear();
 }
 
-class FileConnectionProfileStore implements ConnectionProfileStore {
-  Future<File> _resolveFile() async {
-    final String home = Platform.environment['HOME'] ?? Directory.current.path;
-    final Directory directory = Directory('$home/.clawui');
-    if (!await directory.exists()) {
-      await directory.create(recursive: true);
-    }
-    return File('${directory.path}/connection_profile.json');
-  }
+ConnectionProfileStore createConnectionProfileStore() {
+  return profile_store.createConnectionProfileStore();
+}
 
-  @override
-  Future<void> clear() async {
-    final File file = await _resolveFile();
-    if (await file.exists()) {
-      await file.delete();
-    }
-  }
-
-  @override
-  Future<ConnectionProfile?> load() async {
-    try {
-      final File file = await _resolveFile();
-      if (!await file.exists()) {
-        return null;
-      }
-      final Map<String, dynamic> json =
-          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-      return ConnectionProfile.fromJson(json);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  @override
-  Future<void> save(ConnectionProfile profile) async {
-    final File file = await _resolveFile();
-    await file.writeAsString(profile.encode());
+ConnectionProfile? decodeConnectionProfile(String raw) {
+  try {
+    final Map<String, dynamic> json = jsonDecode(raw) as Map<String, dynamic>;
+    return ConnectionProfile.fromJson(json);
+  } catch (_) {
+    return null;
   }
 }

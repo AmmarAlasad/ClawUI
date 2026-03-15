@@ -1,0 +1,9 @@
+{
+  "name": "ClawUI",
+  "short_name": "ClawUI",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#081018",
+  "theme_color": "#133A47",
+  "description": "Flutter control surface for OpenClaw Gateway."
+}

@@ -38,7 +38,7 @@ class _ChatScreenState extends State<ChatScreen> {
             eyebrow: 'Assistant Surface',
             title: 'Query the current gateway context.',
             description:
-                'Messages route through the repository abstraction and remain useful in demo fallback mode.',
+                'Messages go to the documented OpenClaw HTTP /v1/chat/completions surface and remain useful in demo fallback mode.',
           ),
           const SizedBox(height: 16),
           ClawCard(

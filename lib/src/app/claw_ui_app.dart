@@ -17,7 +17,7 @@ class ClawUiBootstrap extends StatefulWidget {
 
 class _ClawUiBootstrapState extends State<ClawUiBootstrap> {
   late final AppController _controller = AppController(
-    profileStore: FileConnectionProfileStore(),
+    profileStore: createConnectionProfileStore(),
     repository: OpenClawRepositoryRouter(
       fallback: DemoOpenClawRepository(),
       network: NetworkOpenClawRepository(OpenClawApiClient()),

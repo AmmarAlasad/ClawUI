@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app/app_scope.dart';
+import '../core/models.dart';
 import 'connect_screen.dart';
 import 'widgets.dart';
 
@@ -35,13 +36,25 @@ class SettingsScreen extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 6),
-                  Text(profile.serverUrl),
+                  Text(profile.targetLabel),
                   const SizedBox(height: 6),
-                  Text('Auth: ${profile.authMode.name}'),
+                  Text('Endpoint: ${profile.endpointLabel}'),
+                  const SizedBox(height: 6),
+                  Text('HTTP: ${profile.chatCompletionsUri}'),
+                  const SizedBox(height: 6),
+                  Text('WS: ${profile.websocketUri}'),
+                  const SizedBox(height: 6),
+                  Text('Auth: ${profile.authLabel}'),
                   const SizedBox(height: 6),
                   Text(
                     'Mode: ${profile.demoMode ? 'Demo fallback' : 'Live first'}',
                   ),
+                  const SizedBox(height: 6),
+                  Text('Transport: ${profile.transportLabel}'),
+                  if (controller.connectionCheck != null) ...<Widget>[
+                    const SizedBox(height: 6),
+                    Text('Last check: ${controller.connectionCheck!.message}'),
+                  ],
                 ],
                 const SizedBox(height: 16),
                 Row(

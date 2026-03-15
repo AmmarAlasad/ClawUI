@@ -7,5 +7,6 @@ void main() {
     await tester.pump();
 
     expect(find.text('Connect ClawUI'), findsOneWidget);
+    expect(find.text('Direct URL'), findsOneWidget);
   });
 }
