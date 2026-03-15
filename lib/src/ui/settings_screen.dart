@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../app/app_scope.dart';
-import '../core/models.dart';
 import 'connect_screen.dart';
 import 'widgets.dart';
 
