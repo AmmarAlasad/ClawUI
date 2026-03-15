@@ -70,7 +70,7 @@ class DevicesScreen extends StatelessWidget {
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(item.name),
-                      subtitle: Text('${item.platform} • ${item.lastSeen}'),
+                      subtitle: Text('${item.platform} - ${item.lastSeen}'),
                       trailing: Text(item.status),
                     ),
                     Row(
@@ -119,7 +119,7 @@ class DevicesScreen extends StatelessWidget {
                   contentPadding: EdgeInsets.zero,
                   title: Text(item.name),
                   subtitle: Text(
-                    '${item.platform} • Last seen ${item.lastSeen}',
+                    '${item.platform} - Last seen ${item.lastSeen}',
                   ),
                   trailing: Text(item.status),
                 ),

@@ -56,7 +56,7 @@ class HomeScreen extends StatelessWidget {
             StatusBanner(
               title: 'Connection surfaces',
               message:
-                  '${controller.connectionCheck!.message}\nHTTP ${controller.profile?.chatCompletionsUri}\nTools ${controller.profile?.toolsInvokeUri}\nWS ${controller.profile?.websocketUri}',
+                  '${controller.connectionCheck!.message}\nHealth ${controller.profile?.healthUri}\nTools ${controller.profile?.toolsInvokeUri}\nWS ${controller.profile?.websocketUri}',
             ),
             const SizedBox(height: 16),
           ],
@@ -178,6 +178,27 @@ class HomeScreen extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 20),
+          const SectionTitle('Skills'),
+          if (dashboard.skills.isEmpty)
+            const EmptyState(
+              title: 'No skill status available',
+              message:
+                  'Skill health will appear here once the gateway exposes the operator skill report.',
+            ),
+          ...dashboard.skills.map(
+            (SkillInfo item) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ClawCard(
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(item.displayName),
+                  subtitle: Text(item.detail),
+                  trailing: Text(item.status),
+                ),
+              ),
+            ),
           ),
         ],
       ),

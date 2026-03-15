@@ -1,18 +1,28 @@
 import 'dart:convert';
 
+import 'gateway_device_auth_store.dart';
 import 'gateway_http_client.dart';
+import 'gateway_ws_client.dart';
 import 'models.dart';
 
 abstract class OpenClawRepository {
   Future<OperatorSnapshot> fetchOverview(ConnectionProfile profile);
+  Future<List<DeviceInfo>> fetchDevices(ConnectionProfile profile);
+  Future<List<CronJob>> fetchCronJobs(ConnectionProfile profile);
+  Future<List<SkillInfo>> fetchSkills(ConnectionProfile profile);
   Future<ConnectionCheckResult> testConnection(ConnectionProfile profile);
   Future<void> approveDevice(ConnectionProfile profile, String requestId);
   Future<void> rejectDevice(ConnectionProfile profile, String requestId);
+  Future<List<ChatMessage>> fetchChatHistory(
+    ConnectionProfile profile, {
+    String sessionKey = 'main',
+  });
   Future<ChatMessage> sendMessage(
     ConnectionProfile profile,
     String message,
-    List<ChatMessage> conversation,
-  );
+    List<ChatMessage> conversation, {
+    String sessionKey = 'main',
+  });
 }
 
 class OpenClawRepositoryRouter implements OpenClawRepository {
@@ -41,11 +51,31 @@ class OpenClawRepositoryRouter implements OpenClawRepository {
     if (_shouldUseFallback(profile)) {
       return _fallback.fetchOverview(profile);
     }
-    try {
-      return await _network!.fetchOverview(profile);
-    } catch (_) {
-      return _fallback.fetchOverview(profile);
+    return _network!.fetchOverview(profile);
+  }
+
+  @override
+  Future<List<DeviceInfo>> fetchDevices(ConnectionProfile profile) async {
+    if (_shouldUseFallback(profile)) {
+      return _fallback.fetchDevices(profile);
     }
+    return _network!.fetchDevices(profile);
+  }
+
+  @override
+  Future<List<CronJob>> fetchCronJobs(ConnectionProfile profile) async {
+    if (_shouldUseFallback(profile)) {
+      return _fallback.fetchCronJobs(profile);
+    }
+    return _network!.fetchCronJobs(profile);
+  }
+
+  @override
+  Future<List<SkillInfo>> fetchSkills(ConnectionProfile profile) async {
+    if (_shouldUseFallback(profile)) {
+      return _fallback.fetchSkills(profile);
+    }
+    return _network!.fetchSkills(profile);
   }
 
   @override
@@ -60,16 +90,34 @@ class OpenClawRepositoryRouter implements OpenClawRepository {
   Future<ChatMessage> sendMessage(
     ConnectionProfile profile,
     String message,
-    List<ChatMessage> conversation,
-  ) async {
+    List<ChatMessage> conversation, {
+    String sessionKey = 'main',
+  }) async {
     if (_shouldUseFallback(profile)) {
-      return _fallback.sendMessage(profile, message, conversation);
+      return _fallback.sendMessage(
+        profile,
+        message,
+        conversation,
+        sessionKey: sessionKey,
+      );
     }
-    try {
-      return await _network!.sendMessage(profile, message, conversation);
-    } catch (_) {
-      return _fallback.sendMessage(profile, message, conversation);
+    return _network!.sendMessage(
+      profile,
+      message,
+      conversation,
+      sessionKey: sessionKey,
+    );
+  }
+
+  @override
+  Future<List<ChatMessage>> fetchChatHistory(
+    ConnectionProfile profile, {
+    String sessionKey = 'main',
+  }) async {
+    if (_shouldUseFallback(profile)) {
+      return _fallback.fetchChatHistory(profile, sessionKey: sessionKey);
     }
+    return _network!.fetchChatHistory(profile, sessionKey: sessionKey);
   }
 
   @override
@@ -103,6 +151,21 @@ class DemoOpenClawRepository implements OpenClawRepository {
     ConnectionProfile profile,
     String requestId,
   ) async {}
+
+  @override
+  Future<List<CronJob>> fetchCronJobs(ConnectionProfile profile) async {
+    return (await fetchOverview(profile)).cronJobs;
+  }
+
+  @override
+  Future<List<DeviceInfo>> fetchDevices(ConnectionProfile profile) async {
+    return (await fetchOverview(profile)).devices;
+  }
+
+  @override
+  Future<List<SkillInfo>> fetchSkills(ConnectionProfile profile) async {
+    return (await fetchOverview(profile)).skills;
+  }
 
   @override
   Future<OperatorSnapshot> fetchOverview(ConnectionProfile profile) async {
@@ -173,16 +236,19 @@ class DemoOpenClawRepository implements OpenClawRepository {
         ),
         sessions: const <SessionInfo>[
           SessionInfo(
+            key: 'deploy-staging-rollback',
             title: 'Deploy staging rollback',
             updatedAgo: 'Updated 3m ago',
             state: 'Running',
           ),
           SessionInfo(
+            key: 'investigate-gpu-node-drift',
             title: 'Investigate GPU node drift',
             updatedAgo: 'Updated 14m ago',
             state: 'Needs review',
           ),
           SessionInfo(
+            key: 'nightly-summary',
             title: 'Nightly summary',
             updatedAgo: 'Updated 48m ago',
             state: 'Idle',
@@ -196,9 +262,37 @@ class DemoOpenClawRepository implements OpenClawRepository {
           overdueJobs: 1,
           nextRunLabel: 'Inventory sync in 12m',
         ),
+        skills: const <SkillInfo>[
+          SkillInfo(
+            name: 'web-search',
+            status: 'Enabled',
+            detail: 'API key configured',
+            group: 'Built-in',
+          ),
+          SkillInfo(
+            name: 'calendar',
+            status: 'Blocked',
+            detail: 'Missing provider credentials',
+            group: 'Installed',
+          ),
+        ],
       ),
       devices: devices,
       cronJobs: cronJobs,
+      skills: const <SkillInfo>[
+        SkillInfo(
+          name: 'web-search',
+          status: 'Enabled',
+          detail: 'API key configured',
+          group: 'Built-in',
+        ),
+        SkillInfo(
+          name: 'calendar',
+          status: 'Blocked',
+          detail: 'Missing provider credentials',
+          group: 'Installed',
+        ),
+      ],
     );
   }
 
@@ -209,11 +303,28 @@ class DemoOpenClawRepository implements OpenClawRepository {
   ) async {}
 
   @override
+  Future<List<ChatMessage>> fetchChatHistory(
+    ConnectionProfile profile, {
+    String sessionKey = 'main',
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    return const <ChatMessage>[
+      ChatMessage(
+        role: MessageRole.assistant,
+        content:
+            'ClawUI is ready. Ask for gateway status, sessions, devices, cron, or skills.',
+        timestampLabel: 'now',
+      ),
+    ];
+  }
+
+  @override
   Future<ChatMessage> sendMessage(
     ConnectionProfile profile,
     String message,
-    List<ChatMessage> conversation,
-  ) async {
+    List<ChatMessage> conversation, {
+    String sessionKey = 'main',
+  }) async {
     await Future<void>.delayed(const Duration(milliseconds: 320));
     final String response = message.toLowerCase().contains('status')
         ? 'Gateway healthy. Sessions and devices are being served from the demo adapter.'
@@ -243,135 +354,223 @@ class DemoOpenClawRepository implements OpenClawRepository {
 }
 
 class NetworkOpenClawRepository implements OpenClawRepository {
-  NetworkOpenClawRepository(this._client);
+  NetworkOpenClawRepository(
+    this._client, {
+    GatewayWsClient? wsClient,
+    GatewayDeviceAuthStore? deviceAuthStore,
+  }) : _wsClient = wsClient ?? createGatewayWsClient(),
+       _deviceAuthStore = deviceAuthStore ?? GatewayDeviceAuthStore();
 
   final OpenClawApiClient _client;
+  final GatewayWsClient _wsClient;
+  final GatewayDeviceAuthStore _deviceAuthStore;
 
   @override
   Future<void> approveDevice(
     ConnectionProfile profile,
     String requestId,
   ) async {
-    await _client.invokeTool(profile, 'nodes', <String, dynamic>{
-      'action': 'approve',
+    await _callRpc(profile, 'device.pair.approve', <String, dynamic>{
       'requestId': requestId,
     });
   }
 
   @override
   Future<OperatorSnapshot> fetchOverview(ConnectionProfile profile) async {
-    final ConnectionCheckResult connection = await testConnection(profile);
-    final Map<String, dynamic> sessionsPayload = await _client.invokeTool(
+    final Future<ConnectionCheckResult> connectionFuture = testConnection(
       profile,
-      'sessions_list',
-      <String, dynamic>{'limit': 6, 'messageLimit': 0},
-    );
-    final Map<String, dynamic> nodesPayload = await _client.invokeTool(
+    ).timeout(const Duration(seconds: 10));
+    final ConnectionCheckResult connection = await connectionFuture;
+    final GatewayHelloSnapshot? helloSnapshot = await _loadHelloSnapshot(
       profile,
-      'nodes',
-      <String, dynamic>{'action': 'status'},
-    );
-    final Map<String, dynamic> pendingPayload = await _client.invokeTool(
-      profile,
-      'nodes',
-      <String, dynamic>{'action': 'pending'},
-    );
-    final Map<String, dynamic> cronStatusPayload = await _client.invokeTool(
-      profile,
-      'cron',
-      <String, dynamic>{'action': 'status'},
-    );
-    final Map<String, dynamic> cronListPayload = await _client.invokeTool(
-      profile,
-      'cron',
-      <String, dynamic>{'action': 'list', 'includeDisabled': true},
-    );
-
-    final List<DeviceInfo> devices = _parseDevices(
-      nodesPayload,
-      pendingPayload,
-    );
-    final List<CronJob> cronJobs = _parseCronJobs(cronListPayload);
-    final List<SessionInfo> sessions = _parseSessions(sessionsPayload);
-    final int pendingApprovals = devices
-        .where((DeviceInfo item) => item.pendingApproval)
-        .length;
-    final int overdueJobs = cronJobs
-        .where((CronJob job) => job.health != JobHealth.healthy)
-        .length;
+    ).timeout(const Duration(seconds: 8), onTimeout: () => null);
+    final String statusVersion =
+        helloSnapshot?.serverVersion ??
+        helloSnapshot?.healthVersion ??
+        'OpenClaw Gateway';
+    final _GatewayData gatewayData = await _loadGatewayData(profile, helloSnapshot);
 
     return OperatorSnapshot(
       connectionCheck: connection,
+      approvalRequired: gatewayData.approvalRequired,
+      approvalMessage: gatewayData.approvalMessage,
       dashboard: DashboardSnapshot(
         gatewayStatus: GatewayStatus(
           online: connection.reachable,
           authenticated: connection.authenticated,
-          version: 'OpenClaw Gateway',
+          version: statusVersion,
           latencyMs: connection.latencyMs,
-          activeSessions: sessions.length,
-          connectedDevices: devices
+          activeSessions: gatewayData.sessions.length,
+          connectedDevices: gatewayData.devices
               .where((DeviceInfo item) => !item.pendingApproval)
               .length,
-          pendingApprovals: pendingApprovals,
-          runningJobs:
-              _readInt(cronStatusPayload['totalJobs']) ?? cronJobs.length,
+          pendingApprovals: gatewayData.devices
+              .where((DeviceInfo item) => item.pendingApproval)
+              .length,
+          runningJobs: gatewayData.cronJobs.length,
         ),
-        sessions: sessions,
-        connectedDevices: devices
+        sessions: gatewayData.sessions,
+        connectedDevices: gatewayData.devices
             .where((DeviceInfo item) => !item.pendingApproval)
             .toList(),
         cronSummary: CronSummary(
-          totalJobs:
-              _readInt(cronStatusPayload['totalJobs']) ?? cronJobs.length,
-          overdueJobs: overdueJobs,
-          nextRunLabel: _resolveNextRunLabel(cronJobs),
+          totalJobs: gatewayData.cronJobs.length,
+          overdueJobs: gatewayData.cronJobs
+              .where((CronJob job) => job.health != JobHealth.healthy)
+              .length,
+          nextRunLabel: gatewayData.cronJobs.isEmpty
+              ? 'Open the Cron tab to load jobs'
+              : _resolveNextRunLabel(gatewayData.cronJobs),
         ),
+        skills: gatewayData.skills,
       ),
-      devices: devices,
-      cronJobs: cronJobs,
+      devices: gatewayData.devices,
+      cronJobs: gatewayData.cronJobs,
+      skills: gatewayData.skills,
     );
   }
 
   @override
   Future<void> rejectDevice(ConnectionProfile profile, String requestId) async {
-    await _client.invokeTool(profile, 'nodes', <String, dynamic>{
-      'action': 'reject',
+    await _callRpc(profile, 'device.pair.reject', <String, dynamic>{
       'requestId': requestId,
     });
+  }
+
+  @override
+  Future<List<DeviceInfo>> fetchDevices(ConnectionProfile profile) async {
+    try {
+      final Map<String, dynamic> devicesPayload = await _callRpc(
+        profile,
+        'device.pair.list',
+        const <String, dynamic>{},
+      );
+      Map<String, dynamic> nodesPayload = const <String, dynamic>{};
+      try {
+        nodesPayload = await _callRpc(
+          profile,
+          'node.list',
+          const <String, dynamic>{},
+        );
+      } on OpenClawApiException {
+        nodesPayload = const <String, dynamic>{};
+      }
+      return _mergeDevices(
+        _parsePairingDevices(devicesPayload),
+        _parseNodeDevices(nodesPayload),
+      );
+    } on OpenClawApiException {
+      final GatewayHelloSnapshot? helloSnapshot = await _loadHelloSnapshot(
+        profile,
+      );
+      return helloSnapshot?.presenceDevices ?? const <DeviceInfo>[];
+    }
+  }
+
+  @override
+  Future<List<CronJob>> fetchCronJobs(ConnectionProfile profile) async {
+    try {
+      final Map<String, dynamic> cronPayload = await _callRpc(
+        profile,
+        'cron.list',
+        <String, dynamic>{'includeDisabled': true, 'limit': 100, 'offset': 0},
+      );
+      return _parseCronJobs(cronPayload);
+    } on OpenClawApiException {
+      final GatewayHelloSnapshot? helloSnapshot = await _loadHelloSnapshot(
+        profile,
+      );
+      return helloSnapshot?.cronFallbackJobs ?? const <CronJob>[];
+    }
+  }
+
+  @override
+  Future<List<SkillInfo>> fetchSkills(ConnectionProfile profile) async {
+    try {
+      final Map<String, dynamic> skillsPayload = await _callRpc(
+        profile,
+        'skills.status',
+        const <String, dynamic>{},
+      );
+      return _parseSkills(skillsPayload);
+    } on OpenClawApiException {
+      final GatewayHelloSnapshot? helloSnapshot = await _loadHelloSnapshot(
+        profile,
+      );
+      return helloSnapshot?.skillsFallback ?? const <SkillInfo>[];
+    }
+  }
+
+  @override
+  Future<List<ChatMessage>> fetchChatHistory(
+    ConnectionProfile profile, {
+    String sessionKey = 'main',
+  }) async {
+    final Map<String, dynamic> history = await _callRpc(
+      profile,
+      'chat.history',
+      <String, dynamic>{'sessionKey': sessionKey, 'limit': 40},
+    );
+    final Map<String, dynamic> details = _unwrapGatewayResult(history);
+    final List<dynamic> messages = _readList(details['messages']);
+    final List<ChatMessage> parsed = messages
+        .whereType<Map<String, dynamic>>()
+        .map(_toChatMessage)
+        .whereType<ChatMessage>()
+        .toList();
+    if (parsed.isNotEmpty) {
+      return parsed;
+    }
+    return const <ChatMessage>[
+      ChatMessage(
+        role: MessageRole.assistant,
+        content:
+            'ClawUI is ready. Ask for gateway status, sessions, devices, cron, or skills.',
+        timestampLabel: 'now',
+      ),
+    ];
   }
 
   @override
   Future<ChatMessage> sendMessage(
     ConnectionProfile profile,
     String message,
-    List<ChatMessage> conversation,
-  ) async {
-    final Map<String, dynamic> response = await _client.postChatCompletions(
+    List<ChatMessage> conversation, {
+    String sessionKey = 'main',
+  }) async {
+    final Map<String, dynamic> sendResult =
+        await _callRpc(profile, 'chat.send', <String, dynamic>{
+          'sessionKey': sessionKey,
+          'message': message,
+          'deliver': false,
+          'idempotencyKey': DateTime.now().millisecondsSinceEpoch.toString(),
+        });
+    final String? runId = sendResult['runId'] as String?;
+    await Future<void>.delayed(const Duration(seconds: 2));
+    final List<ChatMessage> history = await fetchChatHistory(
       profile,
-      <String, dynamic>{
-        'model': 'openclaw',
-        'stream': false,
-        'messages': conversation
-            .map(
-              (ChatMessage item) => <String, dynamic>{
-                'role': item.role.name,
-                'content': item.content,
-              },
-            )
-            .toList(),
-      },
+      sessionKey: sessionKey,
     );
-
-    final List<dynamic> choices =
-        response['choices'] as List<dynamic>? ?? <dynamic>[];
-    final Map<String, dynamic> first = choices.isEmpty
-        ? <String, dynamic>{}
-        : choices.first as Map<String, dynamic>;
-    final Map<String, dynamic> messagePayload =
-        first['message'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final ChatMessage? assistantMessage = history.reversed.firstWhere(
+      (ChatMessage item) => item.role == MessageRole.assistant,
+      orElse: () => const ChatMessage(
+        role: MessageRole.system,
+        content: '',
+        timestampLabel: '',
+      ),
+    );
+    final String content = assistantMessage?.content.trim() ?? '';
+    if (content.isEmpty) {
+      throw OpenClawApiException(
+        runId == null
+            ? 'Chat request was sent, but no assistant reply was returned yet.'
+            : 'Chat run $runId did not produce a readable assistant reply yet.',
+        502,
+      );
+    }
     return ChatMessage(
       role: MessageRole.assistant,
-      content: _extractChatContent(messagePayload['content']),
+      content: content,
       timestampLabel: 'now',
     );
   }
@@ -393,8 +592,8 @@ class NetworkOpenClawRepository implements OpenClawRepository {
   }
 
   List<CronJob> _parseCronJobs(Map<String, dynamic> payload) {
-    final List<dynamic> rawJobs =
-        payload['jobs'] as List<dynamic>? ?? <dynamic>[];
+    final Map<String, dynamic> details = _unwrapGatewayResult(payload);
+    final List<dynamic> rawJobs = _readList(details['jobs']);
     return rawJobs.map((dynamic item) {
       final Map<String, dynamic> job = item as Map<String, dynamic>;
       final Map<String, dynamic> schedule =
@@ -426,8 +625,13 @@ class NetworkOpenClawRepository implements OpenClawRepository {
     Map<String, dynamic> pendingPayload,
   ) {
     final List<DeviceInfo> devices = <DeviceInfo>[];
-    final List<dynamic> rawNodes =
-        nodesPayload['nodes'] as List<dynamic>? ?? <dynamic>[];
+    final Map<String, dynamic> nodesDetails = _unwrapGatewayResult(
+      nodesPayload,
+    );
+    final Map<String, dynamic> pendingDetails = _unwrapGatewayResult(
+      pendingPayload,
+    );
+    final List<dynamic> rawNodes = _readList(nodesDetails['nodes']);
     for (final dynamic item in rawNodes) {
       final Map<String, dynamic> node = item as Map<String, dynamic>;
       devices.add(
@@ -449,8 +653,7 @@ class NetworkOpenClawRepository implements OpenClawRepository {
       );
     }
 
-    final List<dynamic> pending =
-        pendingPayload['pending'] as List<dynamic>? ?? <dynamic>[];
+    final List<dynamic> pending = _readList(pendingDetails['pending']);
     for (final dynamic item in pending) {
       final Map<String, dynamic> request = item as Map<String, dynamic>;
       devices.add(
@@ -475,10 +678,13 @@ class NetworkOpenClawRepository implements OpenClawRepository {
     return devices;
   }
 
-  List<SessionInfo> _parseSessions(Map<String, dynamic> payload) {
-    final List<dynamic> rawSessions =
-        payload['sessions'] as List<dynamic>? ?? <dynamic>[];
-    return rawSessions.map((dynamic item) {
+  List<SessionInfo> _parseSessions(
+    Map<String, dynamic> payload,
+    GatewayHelloSnapshot? helloSnapshot,
+  ) {
+    final Map<String, dynamic> details = _unwrapGatewayResult(payload);
+    final List<dynamic> rawSessions = _readList(details['sessions']);
+    final List<SessionInfo> sessions = rawSessions.map((dynamic item) {
       final Map<String, dynamic> session = item as Map<String, dynamic>;
       final String label =
           (session['label'] as String? ??
@@ -488,9 +694,508 @@ class NetworkOpenClawRepository implements OpenClawRepository {
               .trim();
       final String kind = (session['kind'] as String? ?? 'session').trim();
       return SessionInfo(
+        key: (session['key'] as String? ?? label).trim(),
         title: label,
         updatedAgo: _formatTimestamp(_readInt(session['updatedAt'])),
         state: kind,
+      );
+    }).toList();
+    if (sessions.isNotEmpty) {
+      return sessions;
+    }
+    return helloSnapshot?.recentSessions
+            .map(
+              (GatewayRecentSession item) => SessionInfo(
+                key: item.key,
+                title: item.label,
+                updatedAgo: _formatTimestamp(item.updatedAt),
+                state: item.kind,
+              ),
+            )
+            .toList() ??
+        const <SessionInfo>[];
+  }
+
+  Future<_GatewayData> _loadGatewayData(
+    ConnectionProfile profile,
+    GatewayHelloSnapshot? helloSnapshot,
+  ) async {
+    final _GatewayData? wsData = await _loadWsGatewayData(profile);
+    if (wsData != null) {
+      return wsData;
+    }
+
+    try {
+      final Map<String, dynamic> nodesPayload = await _client.invokeTool(
+        profile,
+        'nodes',
+        <String, dynamic>{'action': 'status'},
+      );
+      final Map<String, dynamic> pendingPayload = await _client.invokeTool(
+        profile,
+        'nodes',
+        <String, dynamic>{'action': 'pending'},
+      );
+      final Map<String, dynamic> cronStatusPayload = await _client.invokeTool(
+        profile,
+        'cron',
+        <String, dynamic>{'action': 'status'},
+      );
+      final Map<String, dynamic> cronListPayload = await _client.invokeTool(
+        profile,
+        'cron',
+        <String, dynamic>{'action': 'list', 'includeDisabled': true},
+      );
+      final Map<String, dynamic> cronStatusDetails = _unwrapGatewayResult(
+        cronStatusPayload,
+      );
+      final Map<String, dynamic> sessionsPayload = await _client.invokeTool(
+        profile,
+        'sessions_list',
+        <String, dynamic>{'limit': 12, 'messageLimit': 0},
+      );
+      return _GatewayData(
+        sessions: _parseSessions(sessionsPayload, helloSnapshot),
+        devices: _parseDevices(nodesPayload, pendingPayload),
+        cronJobs: _parseCronJobs(cronListPayload),
+        skills: const <SkillInfo>[],
+        totalJobs: _readInt(cronStatusDetails['totalJobs']),
+      );
+    } on OpenClawApiException catch (error) {
+      final bool insufficientScope =
+          error.message.contains('missing scope:') ||
+          error.message.contains('Tool not available');
+      if (!insufficientScope) {
+        rethrow;
+      }
+      return _GatewayData(
+        sessions:
+            helloSnapshot?.recentSessions
+                .map(
+                  (GatewayRecentSession item) => SessionInfo(
+                    key: item.key,
+                    title: item.label,
+                    updatedAgo: _formatTimestamp(item.updatedAt),
+                    state: item.kind,
+                  ),
+                )
+                .toList() ??
+            const <SessionInfo>[],
+        devices: helloSnapshot?.presenceDevices ?? const <DeviceInfo>[],
+        cronJobs: helloSnapshot?.cronFallbackJobs ?? const <CronJob>[],
+        skills: helloSnapshot?.skillsFallback ?? const <SkillInfo>[],
+        totalJobs: helloSnapshot?.cronFallbackJobs.length,
+      );
+    }
+  }
+
+  Future<_GatewayData?> _loadWsGatewayData(ConnectionProfile profile) async {
+    try {
+      final Map<String, dynamic> sessionsPayload = await _callRpc(
+        profile,
+        'sessions.list',
+        <String, dynamic>{
+          'includeGlobal': true,
+          'includeUnknown': true,
+          'limit': 20,
+        },
+      );
+      final Map<String, dynamic> devicesPayload = await _callRpc(
+        profile,
+        'device.pair.list',
+        const <String, dynamic>{},
+      );
+      Map<String, dynamic> nodesPayload = const <String, dynamic>{};
+      try {
+        nodesPayload = await _callRpc(
+          profile,
+          'node.list',
+          const <String, dynamic>{},
+        );
+      } on OpenClawApiException {
+        nodesPayload = const <String, dynamic>{};
+      }
+      final Map<String, dynamic> cronPayload = await _callRpc(
+        profile,
+        'cron.list',
+        <String, dynamic>{'includeDisabled': true, 'limit': 100, 'offset': 0},
+      );
+      Map<String, dynamic> skillsPayload = const <String, dynamic>{};
+      try {
+        skillsPayload = await _callRpc(
+          profile,
+          'skills.status',
+          const <String, dynamic>{},
+        );
+      } on OpenClawApiException {
+        skillsPayload = const <String, dynamic>{};
+      }
+      return _GatewayData(
+        sessions: _parseWsSessions(sessionsPayload),
+        devices: _mergeDevices(
+          _parsePairingDevices(devicesPayload),
+          _parseNodeDevices(nodesPayload),
+        ),
+        cronJobs: _parseCronJobs(cronPayload),
+        skills: _parseSkills(skillsPayload),
+        totalJobs:
+            _readInt(cronPayload['total']) ??
+            _readInt(cronPayload['count']) ??
+            (cronPayload['jobs'] as List<dynamic>?)?.length,
+      );
+    } on OpenClawApiException catch (error) {
+      final bool pairingRequired = _isApprovalRequiredMessage(error.message);
+      if (!pairingRequired) {
+        rethrow;
+      }
+      return const _GatewayData(
+        sessions: <SessionInfo>[],
+        devices: <DeviceInfo>[],
+        cronJobs: <CronJob>[],
+        skills: <SkillInfo>[],
+        totalJobs: 0,
+        approvalRequired: true,
+        approvalMessage:
+            'Approve this device in the OpenClaw UI before opening the operator shell.',
+      );
+    }
+  }
+
+  Future<GatewayHelloSnapshot?> _loadHelloSnapshot(
+    ConnectionProfile profile,
+  ) async {
+    try {
+      final GatewayWsConnectContext context = await _wsClient.connect(
+        profile.websocketUri,
+        buildConnect: (GatewayWsChallenge challenge) =>
+            _buildConnectPayload(profile, challenge),
+      );
+      if (context.errorCode != null) {
+        return null;
+      }
+      await _saveDeviceToken(profile, context.payload);
+      return GatewayHelloSnapshot.fromPayload(context.payload);
+    } catch (_) {
+      return null;
+    }
+  }
+
+
+  Future<Map<String, dynamic>> _buildConnectPayload(
+    ConnectionProfile profile,
+    GatewayWsChallenge challenge,
+  ) async {
+    final String scopeKey = _scopeKey(profile.websocketUri);
+    final GatewayDeviceIdentity identity = await _deviceAuthStore
+        .loadOrCreateIdentity(scopeKey);
+    final GatewayDeviceToken? cachedToken = await _deviceAuthStore
+        .loadDeviceToken(scopeKey);
+    final List<String> scopes = <String>[
+      'operator.read',
+      'operator.write',
+      'operator.admin',
+      'operator.approvals',
+      'operator.pairing',
+    ];
+    final Map<String, dynamic> auth = <String, dynamic>{};
+    if (profile.authMode == AuthMode.token && profile.token.trim().isNotEmpty) {
+      auth['token'] = profile.token.trim();
+    } else if (profile.password.trim().isNotEmpty) {
+      auth['password'] = profile.password.trim();
+    }
+    if (cachedToken != null && cachedToken.token.trim().isNotEmpty) {
+      auth['deviceToken'] = cachedToken.token.trim();
+    }
+
+    final int signedAt =
+        challenge.timestampMs ?? DateTime.now().millisecondsSinceEpoch;
+    final String tokenForSignature =
+        (cachedToken?.token.trim().isNotEmpty ?? false)
+        ? cachedToken!.token.trim()
+        : (auth['token'] as String? ?? '');
+    final String signaturePayload = <String>[
+      'v2',
+      identity.deviceId,
+      'openclaw-android',
+      'ui',
+      'operator',
+      scopes.join(','),
+      '$signedAt',
+      tokenForSignature,
+      challenge.nonce ?? '',
+    ].join('|');
+    final String signature = await _deviceAuthStore.sign(
+      identity,
+      signaturePayload,
+    );
+
+    return <String, dynamic>{
+      'minProtocol': 3,
+      'maxProtocol': 3,
+      'client': <String, dynamic>{
+        'id': 'openclaw-android',
+        'version': '0.1.0',
+        'platform': 'android',
+        'mode': 'ui',
+        'instanceId': 'clawui-mobile',
+      },
+      'role': 'operator',
+      'scopes': scopes,
+      'auth': auth,
+      'locale': 'en-US',
+      'device': <String, dynamic>{
+        'id': identity.deviceId,
+        'publicKey': _deviceAuthStore.encodePublicKeyForWire(
+          identity.publicKey,
+        ),
+        'signature': signature,
+        'signedAt': signedAt,
+        if (challenge.nonce != null) 'nonce': challenge.nonce,
+      },
+      'caps': const <String>['tool-events'],
+    };
+  }
+
+  Future<Map<String, dynamic>> _callRpc(
+    ConnectionProfile profile,
+    String method,
+    Map<String, dynamic> params,
+  ) async {
+    GatewayWsResponse response = await _wsClient.request(
+      profile.websocketUri,
+      buildConnect: (GatewayWsChallenge challenge) =>
+          _buildConnectPayload(profile, challenge),
+      method: method,
+      params: params,
+    );
+    if (!response.ok && _shouldRetryDeviceAuth(response)) {
+      await _deviceAuthStore.clearDeviceToken(_scopeKey(profile.websocketUri));
+      response = await _wsClient.request(
+        profile.websocketUri,
+        buildConnect: (GatewayWsChallenge challenge) =>
+            _buildConnectPayload(profile, challenge),
+        method: method,
+        params: params,
+      );
+    }
+    if (!response.ok) {
+      throw OpenClawApiException(
+        response.errorMessage ?? 'Gateway WS request failed.',
+        403,
+      );
+    }
+    await _saveDeviceToken(profile, response.payload);
+    return response.payload;
+  }
+
+  bool _shouldRetryDeviceAuth(GatewayWsResponse response) {
+    final String code = (response.errorCode ?? '').trim().toLowerCase();
+    final String message = (response.errorMessage ?? '').trim().toLowerCase();
+    return code.contains('device_token_invalid') ||
+        message.contains('device token invalid') ||
+        message.contains('device token mismatch');
+  }
+
+  Future<void> _saveDeviceToken(
+    ConnectionProfile profile,
+    Map<String, dynamic> payload,
+  ) async {
+    final Map<String, dynamic> auth = _readMap(
+      payload['auth'] ?? _unwrapGatewayResult(payload)['auth'],
+    );
+    final String token = auth['deviceToken'] as String? ?? '';
+    if (token.trim().isEmpty) {
+      return;
+    }
+    await _deviceAuthStore.saveDeviceToken(
+      _scopeKey(profile.websocketUri),
+      GatewayDeviceToken(
+        token: token.trim(),
+        role: auth['role'] as String? ?? 'operator',
+        scopes: _readList(auth['scopes'])
+            .map((dynamic item) => item.toString())
+            .toList(),
+      ),
+    );
+  }
+
+  List<SessionInfo> _parseWsSessions(Map<String, dynamic> payload) {
+    final Map<String, dynamic> details = _unwrapGatewayResult(payload);
+    final List<dynamic> rawSessions = _readList(
+      details['sessions'] ?? details['items'],
+    );
+    return rawSessions.map((dynamic item) {
+      final Map<String, dynamic> session = item as Map<String, dynamic>;
+      return SessionInfo(
+        key:
+            (session['key'] as String? ??
+                    session['sessionKey'] as String? ??
+                    session['id'] as String? ??
+                    titleFromSession(session))
+                .trim(),
+        title: titleFromSession(session),
+        updatedAgo: _formatTimestamp(
+          _readInt(session['updatedAt']) ??
+              _readInt(session['updatedAtMs']) ??
+              _readInt(session['lastMessageAt']) ??
+              _readInt(session['lastMessageAtMs']),
+        ),
+        state:
+            (session['kind'] as String? ??
+                    session['state'] as String? ??
+                    session['status'] as String? ??
+                    'session')
+                .trim(),
+      );
+    }).toList();
+  }
+
+  String titleFromSession(Map<String, dynamic> session) {
+    return (session['label'] as String? ??
+            session['title'] as String? ??
+            session['displayName'] as String? ??
+            session['key'] as String? ??
+            'Session')
+        .trim();
+  }
+
+  List<DeviceInfo> _parsePairingDevices(Map<String, dynamic> payload) {
+    final List<DeviceInfo> devices = <DeviceInfo>[];
+    final Map<String, dynamic> details = _unwrapGatewayResult(payload);
+    final List<dynamic> pending = _readList(details['pending']);
+    final List<dynamic> paired = _readList(details['paired']);
+    for (final dynamic item in pending) {
+      final Map<String, dynamic> device = item as Map<String, dynamic>;
+      devices.add(
+        DeviceInfo(
+          name:
+              (device['displayName'] as String? ??
+                      device['name'] as String? ??
+                      device['deviceId'] as String? ??
+                      'Pending device')
+                  .trim(),
+          platform:
+              (device['platform'] as String? ??
+                      device['deviceFamily'] as String? ??
+                      'Unknown')
+                  .trim(),
+          status: 'Pending approval',
+          lastSeen: _formatTimestamp(
+            _readInt(device['lastSeenAtMs']) ??
+                _readInt(device['updatedAtMs']) ??
+                _readInt(device['ts']),
+          ),
+          pendingApproval: true,
+          requestId: device['requestId'] as String?,
+        ),
+      );
+    }
+    for (final dynamic item in paired) {
+      final Map<String, dynamic> device = item as Map<String, dynamic>;
+      devices.add(
+        DeviceInfo(
+          name:
+              (device['displayName'] as String? ??
+                      device['name'] as String? ??
+                      device['deviceId'] as String? ??
+                      'Trusted device')
+                  .trim(),
+          platform:
+              (device['platform'] as String? ??
+                      device['deviceFamily'] as String? ??
+                      'Unknown')
+                  .trim(),
+          status: 'Trusted',
+          lastSeen: _formatTimestamp(
+            _readInt(device['lastSeenAtMs']) ??
+                _readInt(device['rotatedAtMs']) ??
+                _readInt(device['updatedAtMs']) ??
+                _readInt(device['ts']),
+          ),
+        ),
+      );
+    }
+    return devices;
+  }
+
+  List<DeviceInfo> _parseNodeDevices(Map<String, dynamic> payload) {
+    final Map<String, dynamic> details = _unwrapGatewayResult(payload);
+    final List<dynamic> rawNodes = _readList(details['nodes']);
+    return rawNodes.map((dynamic item) {
+      final Map<String, dynamic> node = item as Map<String, dynamic>;
+      final bool connected = node['connected'] as bool? ?? true;
+      return DeviceInfo(
+        name:
+            (node['displayName'] as String? ??
+                    node['name'] as String? ??
+                    node['host'] as String? ??
+                    node['nodeId'] as String? ??
+                    'Node')
+                .trim(),
+        platform:
+            (node['platform'] as String? ??
+                    node['deviceFamily'] as String? ??
+                    'Unknown')
+                .trim(),
+        status: connected ? 'Connected' : 'Offline',
+        lastSeen: _formatTimestamp(
+          _readInt(node['lastSeenAtMs']) ??
+              _readInt(node['updatedAtMs']) ??
+              _readInt(node['ts']),
+        ),
+      );
+    }).toList();
+  }
+
+  List<DeviceInfo> _mergeDevices(
+    List<DeviceInfo> pairingDevices,
+    List<DeviceInfo> nodeDevices,
+  ) {
+    final Map<String, DeviceInfo> merged = <String, DeviceInfo>{};
+    for (final DeviceInfo item in pairingDevices) {
+      merged['${item.name}|${item.platform}|${item.pendingApproval}'] = item;
+    }
+    for (final DeviceInfo item in nodeDevices) {
+      merged.putIfAbsent(
+        '${item.name}|${item.platform}|${item.pendingApproval}',
+        () => item,
+      );
+    }
+    return merged.values.toList();
+  }
+
+  List<SkillInfo> _parseSkills(Map<String, dynamic> payload) {
+    final Map<String, dynamic> details = _unwrapGatewayResult(payload);
+    final List<dynamic> rawSkills = _readList(
+      details['skills'] ?? details['items'] ?? details['report'],
+    );
+    return rawSkills.map((dynamic item) {
+      final Map<String, dynamic> skill = item as Map<String, dynamic>;
+      final List<dynamic> missing = _readList(skill['missing']);
+      final bool disabled = skill['disabled'] as bool? ?? false;
+      final bool blocked = skill['blockedByAllowlist'] as bool? ?? false;
+      final String status = blocked
+          ? 'Blocked'
+          : disabled
+          ? 'Disabled'
+          : missing.isNotEmpty
+          ? 'Missing deps'
+          : 'Enabled';
+      final String detail = blocked
+          ? 'Blocked by allowlist'
+          : missing.isNotEmpty
+          ? missing.map((dynamic item) => item.toString()).join(', ')
+          : (skill['description'] as String? ?? 'Ready');
+      return SkillInfo(
+        name: (skill['name'] as String? ?? skill['key'] as String? ?? 'Skill')
+            .trim(),
+        status: status,
+        detail: _formatSkillDetail(
+          detail,
+          missing,
+          skill['platforms'] ?? skill['platform'],
+        ),
+        group: _resolveSkillGroup(skill),
       );
     }).toList();
   }
@@ -683,21 +1388,10 @@ Map<String, dynamic> _decodeJsonObject(String body) {
   return jsonDecode(body) as Map<String, dynamic>;
 }
 
-String _extractChatContent(dynamic content) {
-  if (content is String && content.trim().isNotEmpty) {
-    return content.trim();
-  }
-  if (content is List<dynamic>) {
-    final Iterable<String> parts = content
-        .whereType<Map<String, dynamic>>()
-        .map((Map<String, dynamic> item) => item['text'] as String? ?? '')
-        .where((String value) => value.trim().isNotEmpty);
-    final String joined = parts.join('\n\n').trim();
-    if (joined.isNotEmpty) {
-      return joined;
-    }
-  }
-  return 'No response from gateway.';
+Map<String, dynamic> _unwrapGatewayResult(Map<String, dynamic> payload) {
+  final Map<String, dynamic> details =
+      payload['details'] as Map<String, dynamic>? ?? <String, dynamic>{};
+  return details.isEmpty ? payload : details;
 }
 
 String? _extractErrorMessage(String body) {
@@ -751,7 +1445,366 @@ int? _readInt(dynamic value) {
 
 String _resolveNextRunLabel(List<CronJob> cronJobs) {
   if (cronJobs.isEmpty) {
-    return 'No cron jobs';
+    return 'No cron jobs found';
   }
   return '${cronJobs.first.name} ${cronJobs.first.nextRun}';
+}
+
+bool _isApprovalRequiredMessage(String message) {
+  final String normalized = message.trim().toLowerCase();
+  return normalized.contains('pairing required') ||
+      normalized.contains('not paired') ||
+      normalized.contains('device signature invalid') ||
+      normalized.contains('approve this device');
+}
+
+String _resolveSkillGroup(Map<String, dynamic> skill) {
+  final bool isCore =
+      (skill['core'] as bool? ?? false) ||
+      (skill['isCore'] as bool? ?? false) ||
+      (skill['group'] as String? ?? '').trim().toLowerCase() == 'core' ||
+      (skill['category'] as String? ?? '').trim().toLowerCase() == 'core' ||
+      (skill['source'] as String? ?? '').trim().toLowerCase() == 'core';
+  if (isCore) {
+    return 'Core';
+  }
+  final bool isBuiltIn =
+      (skill['builtin'] as bool? ?? false) ||
+      (skill['builtIn'] as bool? ?? false) ||
+      (skill['isBuiltin'] as bool? ?? false) ||
+      <String>{
+        'builtin',
+        'built-in',
+        'native',
+        'system',
+      }.contains((skill['group'] as String? ?? '').trim().toLowerCase()) ||
+      <String>{
+        'builtin',
+        'built-in',
+        'native',
+        'system',
+      }.contains((skill['category'] as String? ?? '').trim().toLowerCase()) ||
+      <String>{
+        'builtin',
+        'built-in',
+        'native',
+        'system',
+      }.contains((skill['source'] as String? ?? '').trim().toLowerCase());
+  if (isBuiltIn) {
+    return 'Built-in';
+  }
+  final String explicit =
+      (skill['groupLabel'] as String? ??
+              skill['group'] as String? ??
+              skill['category'] as String? ??
+              skill['source'] as String? ??
+              '')
+          .trim();
+  if (explicit.isNotEmpty) {
+    return _formatGroupLabel(explicit);
+  }
+  return 'Installed';
+}
+
+String _formatGroupLabel(String raw) {
+  return raw
+      .split(RegExp(r'[-_]+'))
+      .where((String part) => part.trim().isNotEmpty)
+      .map((String part) {
+        if (part.length == 1) {
+          return part.toUpperCase();
+        }
+        return '${part[0].toUpperCase()}${part.substring(1)}';
+      })
+      .join(' ');
+}
+
+String _formatSkillDetail(
+  String rawDetail,
+  List<dynamic> missing,
+  dynamic platformValue,
+) {
+  final List<String> missingParts = _flattenSkillTokens(missing);
+  if (missingParts.isNotEmpty) {
+    final String joined = missingParts.take(4).join(', ');
+    return 'Missing: $joined';
+  }
+  final List<String> platforms = _flattenSkillTokens(platformValue);
+  final String detail = rawDetail.trim();
+  if (platforms.isNotEmpty &&
+      detail.isNotEmpty &&
+      detail.toLowerCase() != 'ready') {
+    return '$detail\nPlatforms: ${platforms.join(', ')}';
+  }
+  if (platforms.isNotEmpty) {
+    return 'Platforms: ${platforms.join(', ')}';
+  }
+  return detail.isEmpty ? 'Ready' : detail;
+}
+
+List<String> _flattenSkillTokens(dynamic value) {
+  final List<String> tokens = <String>[];
+
+  void collect(dynamic item) {
+    if (item == null) {
+      return;
+    }
+    if (item is List) {
+      for (final dynamic nested in item) {
+        collect(nested);
+      }
+      return;
+    }
+    if (item is Map) {
+      item.values.forEach(collect);
+      return;
+    }
+    final String normalized = item.toString().trim();
+    if (normalized.isEmpty ||
+        normalized == '[]' ||
+        normalized == '{}' ||
+        normalized == 'null') {
+      return;
+    }
+    tokens.add(normalized);
+  }
+
+  collect(value);
+  return tokens.toSet().toList();
+}
+
+String _scopeKey(Uri uri) {
+  final int port = uri.hasPort ? uri.port : (uri.scheme == 'wss' ? 443 : 80);
+  return '${uri.scheme}__${uri.host}__$port'.replaceAll(
+    RegExp(r'[^a-zA-Z0-9_]'),
+    '_',
+  );
+}
+
+String _extractMessageText(Map<String, dynamic>? message) {
+  if (message == null || message.isEmpty) {
+    return '';
+  }
+  if (message['text'] is String) {
+    return (message['text'] as String).trim();
+  }
+  final dynamic content = message['content'];
+  if (content is String) {
+    return content.trim();
+  }
+  if (content is List<dynamic>) {
+    return content
+        .whereType<Map<String, dynamic>>()
+        .map((Map<String, dynamic> item) => item['text'] as String? ?? '')
+        .where((String value) => value.trim().isNotEmpty)
+        .join('\n\n')
+        .trim();
+  }
+  return '';
+}
+
+ChatMessage? _toChatMessage(Map<String, dynamic> message) {
+  final String roleRaw = (message['role'] as String? ?? '')
+      .trim()
+      .toLowerCase();
+  final MessageRole role = switch (roleRaw) {
+    'assistant' => MessageRole.assistant,
+    'user' => MessageRole.user,
+    'system' => MessageRole.system,
+    _ => MessageRole.system,
+  };
+  final String content = _extractMessageText(message);
+  if (content.isEmpty) {
+    return null;
+  }
+  return ChatMessage(
+    role: role,
+    content: content,
+    timestampLabel: _formatTimestamp(
+      _readInt(message['timestamp']) ??
+          _readInt(message['timestampMs']) ??
+          _readInt(message['createdAt']) ??
+          _readInt(message['createdAtMs']),
+    ),
+  );
+}
+
+Map<String, dynamic> _readMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return value.map(
+      (dynamic key, dynamic item) => MapEntry(key.toString(), item),
+    );
+  }
+  return <String, dynamic>{};
+}
+
+List<dynamic> _readList(dynamic value) {
+  if (value is List<dynamic>) {
+    return value;
+  }
+  if (value is List) {
+    return List<dynamic>.from(value);
+  }
+  if (value is Map<String, dynamic>) {
+    if (value['items'] is List) {
+      return _readList(value['items']);
+    }
+    if (value['skills'] is List) {
+      return _readList(value['skills']);
+    }
+    if (value['nodes'] is List) {
+      return _readList(value['nodes']);
+    }
+    if (value['pending'] is List) {
+      return _readList(value['pending']);
+    }
+    if (value['paired'] is List) {
+      return _readList(value['paired']);
+    }
+    if (value['jobs'] is List) {
+      return _readList(value['jobs']);
+    }
+    if (value['messages'] is List) {
+      return _readList(value['messages']);
+    }
+    return value.values.toList(growable: false);
+  }
+  return const <dynamic>[];
+}
+
+class _GatewayData {
+  const _GatewayData({
+    required this.sessions,
+    required this.devices,
+    required this.cronJobs,
+    required this.skills,
+    required this.totalJobs,
+    this.approvalRequired = false,
+    this.approvalMessage,
+  });
+
+  final List<SessionInfo> sessions;
+  final List<DeviceInfo> devices;
+  final List<CronJob> cronJobs;
+  final List<SkillInfo> skills;
+  final int? totalJobs;
+  final bool approvalRequired;
+  final String? approvalMessage;
+}
+
+class GatewayHelloSnapshot {
+  const GatewayHelloSnapshot({
+    required this.serverVersion,
+    required this.healthVersion,
+    required this.recentSessions,
+    required this.presenceDevices,
+    required this.cronFallbackJobs,
+    required this.skillsFallback,
+  });
+
+  final String? serverVersion;
+  final String? healthVersion;
+  final List<GatewayRecentSession> recentSessions;
+  final List<DeviceInfo> presenceDevices;
+  final List<CronJob> cronFallbackJobs;
+  final List<SkillInfo> skillsFallback;
+
+  factory GatewayHelloSnapshot.fromPayload(Map<String, dynamic> payload) {
+    final Map<String, dynamic> snapshot = _readMap(payload['snapshot']);
+    final Map<String, dynamic> health = _readMap(snapshot['health']);
+    final Map<String, dynamic> healthSessions = _readMap(health['sessions']);
+    final List<dynamic> recent = _readList(healthSessions['recent']);
+    final List<dynamic> presence = _readList(snapshot['presence']);
+    final List<dynamic> agents = _readList(health['agents']);
+    final Map<String, dynamic> skillsReport = _readMap(payload['skillsReport']);
+    final Map<String, dynamic> skillsRoot = _readMap(payload['skills']);
+    final List<dynamic> skills = _readList(
+      skillsReport['skills'] ?? payload['skillsReport'] ?? skillsRoot['skills'],
+    );
+    return GatewayHelloSnapshot(
+      serverVersion:
+          (payload['server'] as Map<String, dynamic>? ??
+                  <String, dynamic>{})['version']
+              as String?,
+      healthVersion: health['version'] as String?,
+      recentSessions: recent.map((dynamic item) {
+        final Map<String, dynamic> session = item as Map<String, dynamic>;
+        return GatewayRecentSession(
+          key:
+              (session['key'] as String? ??
+                      session['sessionKey'] as String? ??
+                      session['label'] as String? ??
+                      'session')
+                  .trim(),
+          label:
+              (session['label'] as String? ??
+                      session['key'] as String? ??
+                      'Session')
+                  .trim(),
+          kind: (session['kind'] as String? ?? 'session').trim(),
+          updatedAt: _readInt(session['updatedAt']) ?? 0,
+        );
+      }).toList(),
+      presenceDevices: presence.map((dynamic item) {
+        final Map<String, dynamic> node = item as Map<String, dynamic>;
+        final String host =
+            (node['host'] as String? ?? node['text'] as String? ?? 'Node')
+                .trim();
+        final String mode = (node['mode'] as String? ?? 'ui').trim();
+        return DeviceInfo(
+          name: host,
+          platform: (node['platform'] as String? ?? 'Unknown').trim(),
+          status: mode == 'gateway' ? 'Gateway' : 'Connected',
+          lastSeen: _formatTimestamp(_readInt(node['ts'])),
+        );
+      }).toList(),
+      cronFallbackJobs: agents.map((dynamic item) {
+        final Map<String, dynamic> agent = item as Map<String, dynamic>;
+        final Map<String, dynamic> heartbeat =
+            agent['heartbeat'] as Map<String, dynamic>? ?? <String, dynamic>{};
+        return CronJob(
+          name: (agent['agentId'] as String? ?? 'main').trim() + ' heartbeat',
+          schedule: (heartbeat['every'] as String? ?? 'heartbeat').trim(),
+          nextRun: 'Managed by gateway heartbeat',
+          lastRun: 'Unavailable',
+          health: heartbeat['enabled'] as bool? ?? false
+              ? JobHealth.healthy
+              : JobHealth.warning,
+        );
+      }).toList(),
+      skillsFallback: skills.map((dynamic item) {
+        final Map<String, dynamic> skill = item as Map<String, dynamic>;
+        return SkillInfo(
+          name: (skill['name'] as String? ?? skill['key'] as String? ?? 'Skill')
+              .trim(),
+          status: (skill['disabled'] as bool? ?? false)
+              ? 'Disabled'
+              : 'Enabled',
+          detail: _formatSkillDetail(
+            skill['description'] as String? ?? 'Ready',
+            _readList(skill['missing']),
+            skill['platforms'] ?? skill['platform'],
+          ),
+          group: _resolveSkillGroup(skill),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class GatewayRecentSession {
+  const GatewayRecentSession({
+    required this.key,
+    required this.label,
+    required this.kind,
+    required this.updatedAt,
+  });
+
+  final String key;
+  final String label;
+  final String kind;
+  final int updatedAt;
 }

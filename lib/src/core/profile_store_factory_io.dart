@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
+
 import 'models.dart';
 import 'profile_store.dart';
 
@@ -9,12 +11,27 @@ ConnectionProfileStore createConnectionProfileStore() {
 
 class _FileConnectionProfileStore implements ConnectionProfileStore {
   Future<File> _resolveFile() async {
-    final String home = Platform.environment['HOME'] ?? Directory.current.path;
-    final Directory directory = Directory('$home/.clawui');
+    final Directory directory = await _resolveStorageDirectory();
     if (!await directory.exists()) {
       await directory.create(recursive: true);
     }
     return File('${directory.path}/connection_profile.json');
+  }
+
+  Future<Directory> _resolveStorageDirectory() async {
+    if (Platform.isAndroid || Platform.isIOS) {
+      final Directory baseDirectory = await getApplicationSupportDirectory();
+      return Directory('${baseDirectory.path}/clawui');
+    }
+
+    final String? home =
+        Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+    if (home != null && home.trim().isNotEmpty) {
+      return Directory('$home/.clawui');
+    }
+
+    final Directory baseDirectory = await getApplicationSupportDirectory();
+    return Directory('${baseDirectory.path}/clawui');
   }
 
   @override

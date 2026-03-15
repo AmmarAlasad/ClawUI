@@ -21,7 +21,7 @@ class SettingsScreen extends StatelessWidget {
             eyebrow: 'Preferences',
             title: 'Manage the active gateway profile and UI mode.',
             description:
-                'Connection data is currently stored in a local file-backed profile store until mobile-native secure storage is wired in.',
+                'Profiles are stored locally and connection secrets are kept in platform secure storage.',
           ),
           const SizedBox(height: 16),
           ClawCard(
@@ -39,7 +39,9 @@ class SettingsScreen extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text('Endpoint: ${profile.endpointLabel}'),
                   const SizedBox(height: 6),
-                  Text('HTTP: ${profile.chatCompletionsUri}'),
+                  Text('Health: ${profile.healthUri}'),
+                  const SizedBox(height: 6),
+                  Text('Tools: ${profile.toolsInvokeUri}'),
                   const SizedBox(height: 6),
                   Text('WS: ${profile.websocketUri}'),
                   const SizedBox(height: 6),

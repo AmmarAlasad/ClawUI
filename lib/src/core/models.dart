@@ -219,8 +219,6 @@ class ConnectionProfile {
       'host': host,
       'port': port,
       'authMode': authMode.name,
-      'token': token,
-      'password': password,
       'demoMode': demoMode,
     };
   }
@@ -328,11 +326,13 @@ class GatewayStatus {
 
 class SessionInfo {
   const SessionInfo({
+    required this.key,
     required this.title,
     required this.updatedAgo,
     required this.state,
   });
 
+  final String key;
   final String title;
   final String updatedAgo;
   final String state;
@@ -344,12 +344,14 @@ class DashboardSnapshot {
     required this.sessions,
     required this.connectedDevices,
     required this.cronSummary,
+    required this.skills,
   });
 
   final GatewayStatus gatewayStatus;
   final List<SessionInfo> sessions;
   final List<DeviceInfo> connectedDevices;
   final CronSummary cronSummary;
+  final List<SkillInfo> skills;
 }
 
 class OperatorSnapshot {
@@ -357,13 +359,19 @@ class OperatorSnapshot {
     required this.dashboard,
     required this.devices,
     required this.cronJobs,
+    required this.skills,
     required this.connectionCheck,
+    this.approvalRequired = false,
+    this.approvalMessage,
   });
 
   final DashboardSnapshot dashboard;
   final List<DeviceInfo> devices;
   final List<CronJob> cronJobs;
+  final List<SkillInfo> skills;
   final ConnectionCheckResult connectionCheck;
+  final bool approvalRequired;
+  final String? approvalMessage;
 }
 
 class ChatMessage {
@@ -424,6 +432,30 @@ class CronJob {
   final JobHealth health;
 }
 
+class SkillInfo {
+  const SkillInfo({
+    required this.name,
+    required this.status,
+    required this.detail,
+    this.group = 'Installed',
+  });
+
+  final String name;
+  final String status;
+  final String detail;
+  final String group;
+
+  String get displayName => _formatSkillDisplayName(name);
+
+  String get normalizedGroup {
+    final String value = group.trim();
+    if (value.isEmpty) {
+      return 'Installed';
+    }
+    return value;
+  }
+}
+
 Uri _buildUri({
   required String scheme,
   required String host,
@@ -434,4 +466,38 @@ Uri _buildUri({
     return Uri(scheme: scheme, host: host, path: path);
   }
   return Uri(scheme: scheme, host: host, port: port, path: path);
+}
+
+String _formatSkillDisplayName(String raw) {
+  final String normalized = raw.trim();
+  if (normalized.isEmpty) {
+    return 'Skill';
+  }
+  const Map<String, String> overrides = <String, String>{
+    '1password': '1Password',
+    'github': 'GitHub',
+    'gitlab': 'GitLab',
+    'postgres': 'Postgres',
+    'sqlite': 'SQLite',
+    'icloud': 'iCloud',
+  };
+  final String override = overrides[normalized.toLowerCase()] ?? '';
+  if (override.isNotEmpty) {
+    return override;
+  }
+  return normalized
+      .split(RegExp(r'[-_]+'))
+      .where((String part) => part.trim().isNotEmpty)
+      .map((String part) {
+        final String lower = part.toLowerCase();
+        final String override = overrides[lower] ?? '';
+        if (override.isNotEmpty) {
+          return override;
+        }
+        if (part.length == 1) {
+          return part.toUpperCase();
+        }
+        return '${part[0].toUpperCase()}${part.substring(1)}';
+      })
+      .join(' ');
 }
