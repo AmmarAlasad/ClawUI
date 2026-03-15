@@ -1,0 +1,17 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Platform-local
+android/local.properties
+ios/Flutter/Generated.xcconfig
+ios/Flutter/ephemeral/
