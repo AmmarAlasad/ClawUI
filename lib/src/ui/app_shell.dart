@@ -23,13 +23,7 @@ class AppShell extends StatelessWidget {
 
     return Scaffold(
       extendBody: true,
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 240),
-        child: KeyedSubtree(
-          key: ValueKey<int>(controller.tabIndex),
-          child: screens[controller.tabIndex],
-        ),
-      ),
+      body: IndexedStack(index: controller.tabIndex, children: screens),
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         child: NavigationBar(

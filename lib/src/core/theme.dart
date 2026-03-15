@@ -18,6 +18,10 @@ ThemeData buildClawTheme(Brightness brightness) {
         ? const Color(0xFF090C12)
         : const Color(0xFFE8EEF5),
     canvasColor: Colors.transparent,
+    textTheme: ThemeData(brightness: brightness).textTheme.apply(
+      bodyColor: colorScheme.onSurface,
+      displayColor: colorScheme.onSurface,
+    ),
     cardTheme: CardThemeData(
       color: isDark
           ? const Color(0xFF111A24).withValues(alpha: 0.92)
@@ -37,6 +41,7 @@ ThemeData buildClawTheme(Brightness brightness) {
       backgroundColor: Colors.transparent,
       foregroundColor: colorScheme.onSurface,
       centerTitle: false,
+      scrolledUnderElevation: 0,
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: isDark
@@ -73,6 +78,21 @@ ThemeData buildClawTheme(Brightness brightness) {
         borderRadius: BorderRadius.circular(18),
         borderSide: BorderSide(color: colorScheme.primary, width: 1.4),
       ),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: colorScheme.primary.withValues(alpha: 0.08),
+      selectedColor: colorScheme.primary.withValues(alpha: 0.18),
+      side: BorderSide(color: colorScheme.primary.withValues(alpha: 0.18)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      labelStyle: TextStyle(
+        color: colorScheme.onSurface,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: isDark ? const Color(0xFF111A24) : Colors.white,
+      contentTextStyle: TextStyle(color: colorScheme.onSurface),
     ),
   );
 }

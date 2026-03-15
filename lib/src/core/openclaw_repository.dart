@@ -414,12 +414,14 @@ class OpenClawApiClient {
           HttpHeaders.authorizationHeader,
           'Bearer ${profile.token}',
         );
+        break;
       case AuthMode.password:
         final String raw = 'mobile:${profile.password}';
         request.headers.set(
           HttpHeaders.authorizationHeader,
           'Basic ${base64Encode(utf8.encode(raw))}',
         );
+        break;
     }
     return request;
   }

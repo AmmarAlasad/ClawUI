@@ -23,23 +23,40 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
+    const List<String> prompts = <String>[
+      'Show gateway status',
+      'List pending device approvals',
+      'Summarize cron issues',
+    ];
+
     return ScreenScaffold(
       title: 'Chat',
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const ClawCard(
+          const ScreenIntro(
+            eyebrow: 'Assistant Surface',
+            title: 'Query the current gateway context.',
+            description:
+                'Messages route through the repository abstraction and remain useful in demo fallback mode.',
+          ),
+          const SizedBox(height: 16),
+          ClawCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                SectionTitle('Quick prompts'),
+                const SectionTitle('Quick prompts'),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children: <Widget>[
-                    Chip(label: Text('Show gateway status')),
-                    Chip(label: Text('List pending device approvals')),
-                    Chip(label: Text('Summarize cron issues')),
-                  ],
+                  children: prompts
+                      .map(
+                        (String prompt) => ActionChip(
+                          label: Text(prompt),
+                          onPressed: () => app.sendQuickPrompt(prompt),
+                        ),
+                      )
+                      .toList(),
                 ),
               ],
             ),
@@ -67,6 +84,12 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
+                        Text(
+                          item.role == MessageRole.user ? 'You' : 'ClawUI',
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 8),
                         Text(item.content),
                         const SizedBox(height: 6),
                         Text(
@@ -87,6 +110,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   controller: _controller,
                   minLines: 1,
                   maxLines: 4,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: app.sendingMessage
+                      ? null
+                      : (String value) async {
+                          _controller.clear();
+                          await app.sendMessage(value);
+                        },
                   decoration: const InputDecoration(
                     hintText: 'Ask OpenClaw for status, jobs, or devices',
                   ),

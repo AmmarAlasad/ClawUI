@@ -4,12 +4,14 @@ class ScreenScaffold extends StatelessWidget {
   const ScreenScaffold({
     required this.title,
     required this.child,
+    this.subtitle,
     this.actions = const <Widget>[],
     super.key,
   });
 
   final String title;
   final Widget child;
+  final String? subtitle;
   final List<Widget> actions;
 
   @override
@@ -37,7 +39,17 @@ class ScreenScaffold extends StatelessWidget {
           slivers: <Widget>[
             SliverAppBar(
               pinned: true,
-              title: Text(title),
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(title),
+                  if (subtitle != null)
+                    Text(
+                      subtitle!,
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                ],
+              ),
               actions: actions,
               backgroundColor: Colors.transparent,
             ),
@@ -48,6 +60,43 @@ class ScreenScaffold extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class ScreenIntro extends StatelessWidget {
+  const ScreenIntro({
+    required this.eyebrow,
+    required this.title,
+    required this.description,
+    super.key,
+  });
+
+  final String eyebrow;
+  final String title;
+  final String description;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme textTheme = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          eyebrow.toUpperCase(),
+          style: textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          title,
+          style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 8),
+        Text(description),
+      ],
     );
   }
 }
@@ -66,6 +115,58 @@ class ClawCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(padding: padding, child: child),
+    );
+  }
+}
+
+enum BannerTone { info, warning }
+
+class StatusBanner extends StatelessWidget {
+  const StatusBanner({
+    required this.title,
+    required this.message,
+    this.tone = BannerTone.info,
+    super.key,
+  });
+
+  final String title;
+  final String message;
+  final BannerTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color baseColor = switch (tone) {
+      BannerTone.info => Theme.of(context).colorScheme.primary,
+      BannerTone.warning => Colors.orangeAccent,
+    };
+    return ClawCard(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(
+            tone == BannerTone.info
+                ? Icons.info_outline_rounded
+                : Icons.warning_amber_rounded,
+            color: baseColor,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(message),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -128,6 +229,44 @@ class MetricChip extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class StatBlock extends StatelessWidget {
+  const StatBlock({
+    required this.label,
+    required this.value,
+    required this.caption,
+    super.key,
+  });
+
+  final String label;
+  final String value;
+  final String caption;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          label.toUpperCase(),
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: Theme.of(
+            context,
+          ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 4),
+        Text(caption),
+      ],
     );
   }
 }

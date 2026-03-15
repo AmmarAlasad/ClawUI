@@ -22,6 +22,39 @@ class DevicesScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
+          ScreenIntro(
+            eyebrow: 'Pairing Control',
+            title: pending.isEmpty
+                ? 'All visible devices are trusted.'
+                : '${pending.length} device approvals need attention.',
+            description:
+                'Use this view to review new mobile clients before they are trusted by the gateway.',
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: ClawCard(
+                  child: StatBlock(
+                    label: 'Pending',
+                    value: '${pending.length}',
+                    caption: 'Awaiting approval',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ClawCard(
+                  child: StatBlock(
+                    label: 'Trusted',
+                    value: '${paired.length}',
+                    caption: 'Active device profiles',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
           const SectionTitle('Pending approvals'),
           if (pending.isEmpty)
             const EmptyState(
@@ -64,6 +97,12 @@ class DevicesScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           const SectionTitle('Trusted devices'),
+          if (paired.isEmpty)
+            const EmptyState(
+              title: 'No trusted devices yet',
+              message:
+                  'Approved devices will appear here once the gateway has paired clients.',
+            ),
           ...paired.map(
             (DeviceInfo item) => Padding(
               padding: const EdgeInsets.only(bottom: 12),

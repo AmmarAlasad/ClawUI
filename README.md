@@ -41,7 +41,8 @@ This repo was set up in an offline-constrained environment, so only SDK-local co
 
 - The exact OpenClaw mobile API contract is not yet defined, so the live client uses conservative placeholder endpoints and falls back to demo data cleanly.
 - The local profile store is file-backed for now. It is intentionally abstracted so it can be swapped for `shared_preferences` or secure storage later.
-- In this sandbox, `flutter pub get`, `flutter analyze`, and a full build could not complete because the environment has no offline pub cache for Flutter-pinned packages like `vector_math`, `collection`, and `meta`.
+- In this sandbox, the Flutter SDK wrapper under `/home/asapro/develop/flutter` is not writable, so `flutter pub get`, `flutter analyze`, `flutter create`, and full builds are blocked before they can acquire the SDK cache lockfile.
+- Native platform folders are still absent. On a writable machine with the Flutter SDK available, run `flutter create . --platforms android,ios` from the repo root to generate them without replacing `lib/`.
 
 ## Important Files
 
@@ -53,10 +54,14 @@ This repo was set up in an offline-constrained environment, so only SDK-local co
 - `lib/src/ui/app_shell.dart`
 - `lib/src/ui/connect_screen.dart`
 - `lib/src/ui/home_screen.dart`
+- `.metadata`
+- `test/widget_test.dart`
 
 ## Next Steps
 
+- Generate `android/` and `ios/` once the Flutter SDK can write its cache lockfile.
+- Run `flutter pub get`, `flutter analyze`, and `flutter test` in that environment.
 - Replace placeholder `/api/mobile/*` routes with the real OpenClaw contract
 - Move profile persistence to secure/mobile-native storage
 - Add command execution, approval actions, and richer dashboard telemetry
-- Generate native folders and CI once dependency resolution is available in a network-enabled environment
+- Add CI after native folders and dependency resolution are available

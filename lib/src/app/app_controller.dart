@@ -21,6 +21,7 @@ class AppController extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
   ConnectionProfile? _profile;
   DashboardSnapshot? _dashboard;
+  DateTime? _lastUpdatedAt;
   List<DeviceInfo> _devices = const <DeviceInfo>[];
   List<CronJob> _cronJobs = const <CronJob>[];
   List<ChatMessage> _messages = const <ChatMessage>[
@@ -40,6 +41,7 @@ class AppController extends ChangeNotifier {
   ThemeMode get themeMode => _themeMode;
   ConnectionProfile? get profile => _profile;
   DashboardSnapshot? get dashboard => _dashboard;
+  DateTime? get lastUpdatedAt => _lastUpdatedAt;
   List<DeviceInfo> get devices => _devices;
   List<CronJob> get cronJobs => _cronJobs;
   List<ChatMessage> get messages => _messages;
@@ -66,6 +68,7 @@ class AppController extends ChangeNotifier {
     await _profileStore.clear();
     _profile = null;
     _dashboard = null;
+    _lastUpdatedAt = null;
     _devices = const <DeviceInfo>[];
     _cronJobs = const <CronJob>[];
     _messages = const <ChatMessage>[
@@ -96,8 +99,10 @@ class AppController extends ChangeNotifier {
       _dashboard = results[0] as DashboardSnapshot;
       _devices = results[1] as List<DeviceInfo>;
       _cronJobs = results[2] as List<CronJob>;
-    } catch (error) {
-      _error = 'Unable to refresh gateway data.';
+      _lastUpdatedAt = DateTime.now();
+    } catch (_) {
+      _error =
+          'Unable to refresh gateway data. Demo data will remain available.';
     } finally {
       _busy = false;
       notifyListeners();
@@ -141,6 +146,8 @@ class AppController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<void> sendQuickPrompt(String text) => sendMessage(text);
 
   void setTabIndex(int value) {
     if (_tabIndex == value) {

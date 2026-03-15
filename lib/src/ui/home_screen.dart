@@ -24,6 +24,7 @@ class HomeScreen extends StatelessWidget {
     final GatewayStatus status = dashboard.gatewayStatus;
     return ScreenScaffold(
       title: 'Dashboard',
+      subtitle: controller.profile?.serverUrl,
       actions: <Widget>[
         IconButton(
           onPressed: controller.busy ? null : controller.refresh,
@@ -33,6 +34,24 @@ class HomeScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
+          ScreenIntro(
+            eyebrow: 'Gateway Overview',
+            title: status.online
+                ? 'OpenClaw is reachable.'
+                : 'Gateway connection is degraded.',
+            description: controller.lastUpdatedAt == null
+                ? 'Pull current session, device, and cron state from the active gateway profile.'
+                : 'Last refreshed at ${TimeOfDay.fromDateTime(controller.lastUpdatedAt!).format(context)}.',
+          ),
+          const SizedBox(height: 16),
+          if (controller.error != null) ...<Widget>[
+            StatusBanner(
+              title: 'Refresh issue',
+              message: controller.error!,
+              tone: BannerTone.warning,
+            ),
+            const SizedBox(height: 16),
+          ],
           ClawCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -114,6 +133,12 @@ class HomeScreen extends StatelessWidget {
                         '${dashboard.connectedDevices.length}',
                         style: Theme.of(context).textTheme.headlineMedium,
                       ),
+                      const SizedBox(height: 8),
+                      Text(
+                        status.pendingApprovals == 0
+                            ? 'All devices trusted'
+                            : '${status.pendingApprovals} awaiting approval',
+                      ),
                     ],
                   ),
                 ),
@@ -129,6 +154,12 @@ class HomeScreen extends StatelessWidget {
                       Text(
                         dashboard.cronSummary.nextRunLabel,
                         style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        dashboard.cronSummary.overdueJobs == 0
+                            ? 'No overdue jobs'
+                            : '${dashboard.cronSummary.overdueJobs} overdue jobs',
                       ),
                     ],
                   ),

@@ -10,12 +10,31 @@ class CronScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final List<CronJob> jobs = AppScope.of(context).cronJobs;
+    final int warningCount = jobs
+        .where((CronJob job) => job.health != JobHealth.healthy)
+        .length;
+
     return ScreenScaffold(
       title: 'Cron',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
+          ScreenIntro(
+            eyebrow: 'Scheduler Health',
+            title: warningCount == 0
+                ? 'Cron jobs are on schedule.'
+                : '$warningCount jobs need operator attention.',
+            description:
+                'Track schedule cadence, recent runs, and degraded jobs from the mobile shell.',
+          ),
+          const SizedBox(height: 16),
           const SectionTitle('Jobs'),
+          if (jobs.isEmpty)
+            const EmptyState(
+              title: 'No cron jobs found',
+              message:
+                  'Cron data will appear here after the next successful refresh.',
+            ),
           ...jobs.map(
             (CronJob job) => Padding(
               padding: const EdgeInsets.only(bottom: 12),

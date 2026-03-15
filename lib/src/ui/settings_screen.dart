@@ -17,6 +17,13 @@ class SettingsScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
+          const ScreenIntro(
+            eyebrow: 'Preferences',
+            title: 'Manage the active gateway profile and UI mode.',
+            description:
+                'Connection data is currently stored in a local file-backed profile store until mobile-native secure storage is wired in.',
+          ),
+          const SizedBox(height: 16),
           ClawCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -69,37 +76,24 @@ class SettingsScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 const SectionTitle('Appearance'),
-                RadioListTile<ThemeMode>(
-                  contentPadding: EdgeInsets.zero,
-                  value: ThemeMode.system,
-                  groupValue: controller.themeMode,
-                  title: const Text('System'),
-                  onChanged: (ThemeMode? value) {
-                    if (value != null) {
-                      controller.setThemeMode(value);
-                    }
-                  },
-                ),
-                RadioListTile<ThemeMode>(
-                  contentPadding: EdgeInsets.zero,
-                  value: ThemeMode.dark,
-                  groupValue: controller.themeMode,
-                  title: const Text('Dark'),
-                  onChanged: (ThemeMode? value) {
-                    if (value != null) {
-                      controller.setThemeMode(value);
-                    }
-                  },
-                ),
-                RadioListTile<ThemeMode>(
-                  contentPadding: EdgeInsets.zero,
-                  value: ThemeMode.light,
-                  groupValue: controller.themeMode,
-                  title: const Text('Light'),
-                  onChanged: (ThemeMode? value) {
-                    if (value != null) {
-                      controller.setThemeMode(value);
-                    }
+                SegmentedButton<ThemeMode>(
+                  segments: const <ButtonSegment<ThemeMode>>[
+                    ButtonSegment<ThemeMode>(
+                      value: ThemeMode.system,
+                      label: Text('System'),
+                    ),
+                    ButtonSegment<ThemeMode>(
+                      value: ThemeMode.dark,
+                      label: Text('Dark'),
+                    ),
+                    ButtonSegment<ThemeMode>(
+                      value: ThemeMode.light,
+                      label: Text('Light'),
+                    ),
+                  ],
+                  selected: <ThemeMode>{controller.themeMode},
+                  onSelectionChanged: (Set<ThemeMode> value) {
+                    controller.setThemeMode(value.first);
                   },
                 ),
               ],
