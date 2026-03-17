@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 
 import '../core/connection_secret_store.dart';
 import '../core/openclaw_repository.dart';
@@ -88,6 +89,12 @@ class _AppViewport extends StatelessWidget {
         if (controller.approvalRequired) {
           return const _ApprovalRequiredScreen();
         }
+        // Show waiting screen while the first connection attempt is in-flight.
+        if (controller.busy && controller.dashboard == null && controller.error == null) {
+          return _ConnectionWaitingScreen(
+            endpointLabel: controller.profile?.endpointLabel ?? 'OpenClaw',
+          );
+        }
         return const AppShell();
       },
     );
@@ -106,9 +113,9 @@ class _LaunchScreen extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: <Color>[
-              Color(0xFF05080E),
-              Color(0xFF0F1D28),
-              Color(0xFF123646),
+              Color(0xFF10131A),
+              Color(0xFF171B24),
+              Color(0xFF241920),
             ],
           ),
         ),
@@ -116,6 +123,181 @@ class _LaunchScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ConnectionWaitingScreen extends StatefulWidget {
+  const _ConnectionWaitingScreen({required this.endpointLabel});
+
+  final String endpointLabel;
+
+  @override
+  State<_ConnectionWaitingScreen> createState() => _ConnectionWaitingScreenState();
+}
+
+class _ConnectionWaitingScreenState extends State<_ConnectionWaitingScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: <Color>[
+              Color(0xFF10131A),
+              Color(0xFF171B24),
+              Color(0xFF241920),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                AnimatedBuilder(
+                  animation: _pulse,
+                  builder: (BuildContext context, Widget? child) {
+                    final double scale = 0.88 + 0.12 * _pulse.value;
+                    final double opacity = 0.55 + 0.45 * _pulse.value;
+                    return Opacity(
+                      opacity: opacity,
+                      child: Transform.scale(
+                        scale: scale,
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.5),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.hub_rounded,
+                      size: 34,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 28),
+                Text(
+                  'Connecting…',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  widget.endpointLabel,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: Colors.white54,
+                  ),
+                ),
+                const SizedBox(height: 40),
+                _OrbitingDots(color: theme.colorScheme.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OrbitingDots extends StatefulWidget {
+  const _OrbitingDots({required this.color});
+
+  final Color color;
+
+  @override
+  State<_OrbitingDots> createState() => _OrbitingDotsState();
+}
+
+class _OrbitingDotsState extends State<_OrbitingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _spin = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _spin.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _spin,
+      builder: (BuildContext context, _) {
+        return SizedBox(
+          width: 48,
+          height: 48,
+          child: CustomPaint(
+            painter: _DotsPainter(
+              progress: _spin.value,
+              color: widget.color,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _DotsPainter extends CustomPainter {
+  const _DotsPainter({required this.progress, required this.color});
+
+  final double progress;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()..style = PaintingStyle.fill;
+    final Offset center = Offset(size.width / 2, size.height / 2);
+    const int count = 5;
+    const double radius = 16;
+    for (int i = 0; i < count; i++) {
+      final double angle = 2 * math.pi * (i / count + progress);
+      final double dotRadius = 3.5;
+      final double opacity = (0.25 + 0.75 * ((i / count + progress) % 1.0)).clamp(0.0, 1.0);
+      paint.color = color.withValues(alpha: opacity);
+      canvas.drawCircle(
+        Offset(
+          center.dx + radius * math.cos(angle),
+          center.dy + radius * math.sin(angle),
+        ),
+        dotRadius,
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DotsPainter old) => old.progress != progress;
 }
 
 class _ApprovalRequiredScreen extends StatelessWidget {
@@ -131,9 +313,9 @@ class _ApprovalRequiredScreen extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: <Color>[
-              Color(0xFF081018),
-              Color(0xFF0D1D29),
-              Color(0xFF133A47),
+              Color(0xFF151117),
+              Color(0xFF241820),
+              Color(0xFF2C1D24),
             ],
           ),
         ),

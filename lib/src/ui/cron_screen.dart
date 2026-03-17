@@ -78,8 +78,8 @@ class _HealthBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Color color = switch (health) {
-      JobHealth.healthy => Colors.greenAccent,
-      JobHealth.warning => Colors.orangeAccent,
+      JobHealth.healthy => Theme.of(context).colorScheme.primary,
+      JobHealth.warning => const Color(0xFFF59E0B),
       JobHealth.stalled => Colors.redAccent,
     };
     return Container(

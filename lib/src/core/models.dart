@@ -379,11 +379,49 @@ class ChatMessage {
     required this.role,
     required this.content,
     required this.timestampLabel,
+    this.summary,
+    this.toolCalls = const <ChatToolCall>[],
+    this.attachments = const <ChatAttachment>[],
   });
 
   final MessageRole role;
   final String content;
   final String timestampLabel;
+  final String? summary;
+  final List<ChatToolCall> toolCalls;
+  final List<ChatAttachment> attachments;
+}
+
+class ChatAttachment {
+  const ChatAttachment({
+    required this.name,
+    required this.mimeType,
+    required this.media,
+  });
+
+  final String name;
+  final String mimeType;
+  final String media;
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'name': name,
+      'mimeType': mimeType,
+      'media': media,
+    };
+  }
+}
+
+class ChatToolCall {
+  const ChatToolCall({
+    required this.name,
+    this.summary,
+    this.output,
+  });
+
+  final String name;
+  final String? summary;
+  final String? output;
 }
 
 class DeviceInfo {
@@ -392,6 +430,8 @@ class DeviceInfo {
     required this.platform,
     required this.status,
     required this.lastSeen,
+    this.deviceId,
+    this.role = 'operator',
     this.pendingApproval = false,
     this.requestId,
   });
@@ -400,6 +440,8 @@ class DeviceInfo {
   final String platform;
   final String status;
   final String lastSeen;
+  final String? deviceId;
+  final String role;
   final bool pendingApproval;
   final String? requestId;
 }
@@ -438,12 +480,14 @@ class SkillInfo {
     required this.status,
     required this.detail,
     this.group = 'Installed',
+    this.inputPath,
   });
 
   final String name;
   final String status;
   final String detail;
   final String group;
+  final String? inputPath;
 
   String get displayName => _formatSkillDisplayName(name);
 
@@ -454,6 +498,8 @@ class SkillInfo {
     }
     return value;
   }
+
+  bool get canConfigureInput => inputPath != null && inputPath!.trim().isNotEmpty;
 }
 
 Uri _buildUri({

@@ -9,7 +9,8 @@ class SkillsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final List<SkillInfo> skills = AppScope.of(context).skills;
+    final controller = AppScope.of(context);
+    final List<SkillInfo> skills = controller.skills;
     final Map<String, List<SkillInfo>> grouped = <String, List<SkillInfo>>{};
     for (final SkillInfo skill in skills) {
       grouped.putIfAbsent(skill.normalizedGroup, () => <SkillInfo>[]).add(skill);
@@ -70,8 +71,36 @@ class SkillsScreen extends StatelessWidget {
                                   style: Theme.of(context).textTheme.titleMedium
                                       ?.copyWith(fontWeight: FontWeight.w700),
                                 ),
-                                const SizedBox(height: 6),
-                                Text(item.detail),
+                                if (item.detail.trim().isNotEmpty &&
+                                    item.detail.trim().toLowerCase() !=
+                                        'ready') ...<Widget>[
+                                  const SizedBox(height: 10),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: Text(item.detail),
+                                  ),
+                                ],
+                                if (item.canConfigureInput) ...<Widget>[
+                                  const SizedBox(height: 12),
+                                  FilledButton.tonalIcon(
+                                    onPressed: () =>
+                                        _showSkillInputDialog(context, item),
+                                    icon: const Icon(Icons.tune_rounded),
+                                    label: Text(
+                                      'Set ${item.inputPath!.split('.').last}',
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -122,4 +151,68 @@ class _SkillStatusChip extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<void> _showSkillInputDialog(BuildContext context, SkillInfo skill) async {
+  final appController = AppScope.read(context);
+  final TextEditingController textController = TextEditingController();
+  await showDialog<void>(
+    context: context,
+    builder: (BuildContext dialogContext) {
+      return AlertDialog(
+        title: Text('Set ${skill.displayName} input'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              skill.inputPath ?? '',
+              style: Theme.of(dialogContext).textTheme.labelMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: textController,
+              decoration: const InputDecoration(
+                labelText: 'Value',
+              ),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final ScaffoldMessengerState messenger = ScaffoldMessenger.of(
+                context,
+              );
+              try {
+                await appController.setSkillInput(skill, textController.text);
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop();
+                }
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Updated ${skill.displayName} input.',
+                    ),
+                  ),
+                );
+              } catch (error) {
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text(error.toString()),
+                  ),
+                );
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      );
+    },
+  );
+  textController.dispose();
 }

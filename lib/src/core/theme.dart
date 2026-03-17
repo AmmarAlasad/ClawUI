@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 
 ThemeData buildClawTheme(Brightness brightness) {
   final bool isDark = brightness == Brightness.dark;
+  const Color openClawAccent = Color(0xFFFF5A52);
+  const Color openClawAccentSoft = Color(0xFFF3A28F);
   final ColorScheme colorScheme = ColorScheme.fromSeed(
-    seedColor: const Color(0xFF4ED6B3),
+    seedColor: openClawAccent,
     brightness: brightness,
-    primary: const Color(0xFF4ED6B3),
-    secondary: const Color(0xFF6CB6FF),
-    surface: isDark ? const Color(0xFF11161D) : const Color(0xFFF4F7FA),
+    primary: openClawAccent,
+    secondary: openClawAccentSoft,
+    surface: isDark ? const Color(0xFF12141B) : const Color(0xFFF5F4F6),
   );
 
   return ThemeData(
@@ -15,8 +17,8 @@ ThemeData buildClawTheme(Brightness brightness) {
     brightness: brightness,
     colorScheme: colorScheme,
     scaffoldBackgroundColor: isDark
-        ? const Color(0xFF090C12)
-        : const Color(0xFFE8EEF5),
+        ? const Color(0xFF0D0F14)
+        : const Color(0xFFF5F4F6),
     canvasColor: Colors.transparent,
     textTheme: ThemeData(brightness: brightness).textTheme.apply(
       bodyColor: colorScheme.onSurface,
@@ -24,16 +26,16 @@ ThemeData buildClawTheme(Brightness brightness) {
     ),
     cardTheme: CardThemeData(
       color: isDark
-          ? const Color(0xFF111A24).withValues(alpha: 0.92)
-          : Colors.white.withValues(alpha: 0.92),
+          ? const Color(0xFF171A22).withValues(alpha: 0.98)
+          : const Color(0xFFFCFBFC).withValues(alpha: 0.98),
       elevation: 0,
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(28),
         side: BorderSide(
           color: isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : const Color(0xFFCAD8E6),
+              ? const Color(0xFF2A2E38)
+              : const Color(0xFFE8E1DE),
         ),
       ),
     ),
@@ -45,8 +47,8 @@ ThemeData buildClawTheme(Brightness brightness) {
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: isDark
-          ? const Color(0xFF0E141C)
-          : Colors.white.withValues(alpha: 0.9),
+          ? const Color(0xFF141720)
+          : Colors.white.withValues(alpha: 0.95),
       indicatorColor: colorScheme.primary.withValues(alpha: 0.18),
       labelTextStyle: WidgetStateProperty.resolveWith(
         (Set<WidgetState> states) => TextStyle(
@@ -60,8 +62,8 @@ ThemeData buildClawTheme(Brightness brightness) {
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: isDark
-          ? const Color(0xFF151C25)
-          : Colors.white.withValues(alpha: 0.92),
+          ? const Color(0xFF181B24)
+          : const Color(0xFFFCFBFC),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(18),
         borderSide: BorderSide.none,
@@ -70,8 +72,8 @@ ThemeData buildClawTheme(Brightness brightness) {
         borderRadius: BorderRadius.circular(18),
         borderSide: BorderSide(
           color: isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : const Color(0xFFD5E0EA),
+              ? const Color(0xFF2A2E38)
+              : const Color(0xFFE6DEDA),
         ),
       ),
       focusedBorder: OutlineInputBorder(
@@ -91,8 +93,9 @@ ThemeData buildClawTheme(Brightness brightness) {
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      backgroundColor: isDark ? const Color(0xFF111A24) : Colors.white,
+      backgroundColor: isDark ? const Color(0xFF171A22) : const Color(0xFFFCFBFC),
       contentTextStyle: TextStyle(color: colorScheme.onSurface),
     ),
+    dividerColor: isDark ? const Color(0xFF262A34) : const Color(0xFFE5E0DD),
   );
 }

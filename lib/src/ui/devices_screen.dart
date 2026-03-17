@@ -9,7 +9,8 @@ class DevicesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final List<DeviceInfo> devices = AppScope.of(context).devices;
+    final controller = AppScope.of(context);
+    final List<DeviceInfo> devices = controller.devices;
     final List<DeviceInfo> pending = devices
         .where((DeviceInfo item) => item.pendingApproval)
         .toList();
@@ -77,22 +78,46 @@ class DevicesScreen extends StatelessWidget {
                       children: <Widget>[
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: item.requestId == null
+                        onPressed: item.requestId == null
                                 ? null
-                                : () => AppScope.of(
-                                    context,
-                                  ).rejectDevice(item.requestId!),
+                                : () async {
+                                    try {
+                                      await controller.rejectDevice(
+                                        item.requestId!,
+                                      );
+                                    } catch (error) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text(error.toString()),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
                             child: const Text('Reject'),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: FilledButton(
-                            onPressed: item.requestId == null
+                        onPressed: item.requestId == null
                                 ? null
-                                : () => AppScope.of(
-                                    context,
-                                  ).approveDevice(item.requestId!),
+                                : () async {
+                                    try {
+                                      await controller.approveDevice(
+                                        item.requestId!,
+                                      );
+                                    } catch (error) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text(error.toString()),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
                             child: const Text('Approve'),
                           ),
                         ),
@@ -115,13 +140,40 @@ class DevicesScreen extends StatelessWidget {
             (DeviceInfo item) => Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: ClawCard(
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(item.name),
-                  subtitle: Text(
-                    '${item.platform} - Last seen ${item.lastSeen}',
-                  ),
-                  trailing: Text(item.status),
+                child: Column(
+                  children: <Widget>[
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(item.name),
+                      subtitle: Text(
+                        '${item.platform} - Last seen ${item.lastSeen}',
+                      ),
+                      trailing: Text(item.status),
+                    ),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton.icon(
+                        onPressed: item.deviceId == null
+                            ? null
+                            : () async {
+                                try {
+                                  await controller.removeTrustedDevice(item);
+                                } catch (error) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(error.toString()),
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                        icon: const Icon(Icons.link_off_rounded),
+                        label: const Text('Remove'),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../core/background_notification_service.dart';
+import '../core/background_service_manager.dart';
 import '../core/connection_secret_store.dart';
 import '../core/models.dart';
 import '../core/openclaw_repository.dart';
@@ -91,6 +93,8 @@ class AppController extends ChangeNotifier {
     _ready = true;
     notifyListeners();
     if (_profile != null) {
+      BackgroundNotificationService.instance.start(_profile!, _profile!.secret);
+      // BackgroundServiceManager.instance.updateConfig(...); // Not strictly needed if foreground is enough, but good for persistence
       unawaited(refresh());
     }
   }
@@ -100,11 +104,14 @@ class AppController extends ChangeNotifier {
     _error = null;
     await _secretStore.save(profile);
     await _profileStore.save(profile.copyWith(token: '', password: ''));
+    BackgroundNotificationService.instance.start(_profile!, _profile!.secret);
     notifyListeners();
     unawaited(refresh());
   }
 
   Future<void> clearProfile() async {
+    BackgroundNotificationService.instance.stop();
+    BackgroundServiceManager.instance.stop();
     await _secretStore.clear();
     await _profileStore.clear();
     _profile = null;
@@ -209,9 +216,29 @@ class AppController extends ChangeNotifier {
     await refresh();
   }
 
-  Future<void> sendMessage(String text) async {
+  Future<void> removeTrustedDevice(DeviceInfo device) async {
     final ConnectionProfile? profile = _profile;
-    if (profile == null || text.trim().isEmpty || _sendingMessage) {
+    if (profile == null) {
+      return;
+    }
+    await _repository.removeTrustedDevice(profile, device);
+    await _loadDevices();
+    await refresh();
+  }
+
+  Future<void> setSkillInput(SkillInfo skill, String value) async {
+    final ConnectionProfile? profile = _profile;
+    if (profile == null || value.trim().isEmpty) {
+      return;
+    }
+    await _repository.setSkillInput(profile, skill, value.trim());
+    await _loadSkills();
+    await refresh();
+  }
+
+  Future<void> sendMessage(String text, {List<ChatAttachment> attachments = const <ChatAttachment>[]}) async {
+    final ConnectionProfile? profile = _profile;
+    if (profile == null || (text.trim().isEmpty && attachments.isEmpty) || _sendingMessage) {
       return;
     }
 
@@ -219,6 +246,7 @@ class AppController extends ChangeNotifier {
       role: MessageRole.user,
       content: text.trim(),
       timestampLabel: 'now',
+      attachments: attachments,
     );
     _messages = <ChatMessage>[..._messages, userMessage];
     _sendingMessage = true;
@@ -230,8 +258,15 @@ class AppController extends ChangeNotifier {
         text.trim(),
         _messages,
         sessionKey: _activeSessionKey,
+        attachments: attachments,
       );
       _messages = <ChatMessage>[..._messages, reply];
+      _sendingMessage = false;
+      notifyListeners();
+      // Reload the full chat history from the server so we get the real
+      // complete response (including tool call outputs, summaries, etc.)
+      // instead of the single stale reply.
+      await _loadChatHistoryForActiveSession();
     } catch (error) {
       _messages = <ChatMessage>[
         ..._messages,
@@ -241,7 +276,6 @@ class AppController extends ChangeNotifier {
           timestampLabel: 'now',
         ),
       ];
-    } finally {
       _sendingMessage = false;
       notifyListeners();
     }

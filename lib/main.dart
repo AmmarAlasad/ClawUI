@@ -4,11 +4,15 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import 'src/app/claw_ui_app.dart';
+import 'src/core/background_notification_service.dart';
+import 'src/core/background_service_manager.dart';
 
 void main() {
   runZonedGuarded(
-    () {
+    () async {
       WidgetsFlutterBinding.ensureInitialized();
+      await BackgroundNotificationService.instance.initialize();
+      await BackgroundServiceManager.instance.initialize();
       ErrorWidget.builder = (FlutterErrorDetails details) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,

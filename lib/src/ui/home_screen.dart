@@ -22,6 +22,7 @@ class HomeScreen extends StatelessWidget {
     }
 
     final GatewayStatus status = dashboard.gatewayStatus;
+    final ThemeData theme = Theme.of(context);
     return ScreenScaffold(
       title: 'Dashboard',
       subtitle: controller.profile?.endpointLabel,
@@ -52,14 +53,6 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
           ],
-          if (controller.connectionCheck != null) ...<Widget>[
-            StatusBanner(
-              title: 'Connection surfaces',
-              message:
-                  '${controller.connectionCheck!.message}\nHealth ${controller.profile?.healthUri}\nTools ${controller.profile?.toolsInvokeUri}\nWS ${controller.profile?.websocketUri}',
-            ),
-            const SizedBox(height: 16),
-          ],
           ClawCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -71,7 +64,7 @@ class HomeScreen extends StatelessWidget {
                       height: 12,
                       decoration: BoxDecoration(
                         color: status.online
-                            ? Colors.greenAccent
+                            ? theme.colorScheme.primary
                             : Colors.redAccent,
                         shape: BoxShape.circle,
                       ),

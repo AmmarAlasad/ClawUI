@@ -93,9 +93,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: <Color>[
-              Color(0xFF081018),
-              Color(0xFF0D1D29),
-              Color(0xFF133A47),
+              Color(0xFF10131A),
+              Color(0xFF171B24),
+              Color(0xFF241920),
             ],
           ),
         ),

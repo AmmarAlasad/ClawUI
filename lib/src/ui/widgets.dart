@@ -23,14 +23,14 @@ class ScreenScaffold extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: Theme.of(context).brightness == Brightness.dark
               ? const <Color>[
-                  Color(0xFF090D12),
-                  Color(0xFF0E1720),
-                  Color(0xFF08131A),
+                  Color(0xFF0E1016),
+                  Color(0xFF131720),
+                  Color(0xFF171B25),
                 ]
               : const <Color>[
-                  Color(0xFFE8EEF5),
-                  Color(0xFFDCE8F4),
-                  Color(0xFFF5F9FC),
+                  Color(0xFFF7F4F3),
+                  Color(0xFFF3EFEE),
+                  Color(0xFFF8F6F5),
                 ],
         ),
       ),

@@ -15,6 +15,7 @@ class AppShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppScope.of(context);
     final int selectedIndex = controller.tabIndex.clamp(0, 5);
+    final bool isChat = selectedIndex == 1;
     final Widget screen = switch (selectedIndex) {
       0 => const HomeScreen(),
       1 => const ChatScreen(),
@@ -27,45 +28,48 @@ class AppShell extends StatelessWidget {
     return Scaffold(
       extendBody: true,
       body: screen,
-      bottomNavigationBar: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: NavigationBar(
-          selectedIndex: selectedIndex,
-          onDestinationSelected: controller.setTabIndex,
-          destinations: const <NavigationDestination>[
-            NavigationDestination(
-              icon: Icon(Icons.dashboard_outlined),
-              selectedIcon: Icon(Icons.dashboard_rounded),
-              label: 'Home',
+      // Hide the navigation bar when the user is in the Chat screen.
+      bottomNavigationBar: isChat
+          ? null
+          : Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: NavigationBar(
+                selectedIndex: selectedIndex,
+                onDestinationSelected: controller.setTabIndex,
+                destinations: const <NavigationDestination>[
+                  NavigationDestination(
+                    icon: Icon(Icons.dashboard_outlined),
+                    selectedIcon: Icon(Icons.dashboard_rounded),
+                    label: 'Home',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.chat_bubble_outline_rounded),
+                    selectedIcon: Icon(Icons.chat_rounded),
+                    label: 'Chat',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.devices_other_outlined),
+                    selectedIcon: Icon(Icons.devices_other_rounded),
+                    label: 'Devices',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.schedule_outlined),
+                    selectedIcon: Icon(Icons.schedule_rounded),
+                    label: 'Cron',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.extension_outlined),
+                    selectedIcon: Icon(Icons.extension_rounded),
+                    label: 'Skills',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.settings_outlined),
+                    selectedIcon: Icon(Icons.settings_rounded),
+                    label: 'Settings',
+                  ),
+                ],
+              ),
             ),
-            NavigationDestination(
-              icon: Icon(Icons.chat_bubble_outline_rounded),
-              selectedIcon: Icon(Icons.chat_rounded),
-              label: 'Chat',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.devices_other_outlined),
-              selectedIcon: Icon(Icons.devices_other_rounded),
-              label: 'Devices',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.schedule_outlined),
-              selectedIcon: Icon(Icons.schedule_rounded),
-              label: 'Cron',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.extension_outlined),
-              selectedIcon: Icon(Icons.extension_rounded),
-              label: 'Skills',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.settings_outlined),
-              selectedIcon: Icon(Icons.settings_rounded),
-              label: 'Settings',
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

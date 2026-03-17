@@ -13,6 +13,15 @@ abstract class OpenClawRepository {
   Future<ConnectionCheckResult> testConnection(ConnectionProfile profile);
   Future<void> approveDevice(ConnectionProfile profile, String requestId);
   Future<void> rejectDevice(ConnectionProfile profile, String requestId);
+  Future<void> removeTrustedDevice(
+    ConnectionProfile profile,
+    DeviceInfo device,
+  );
+  Future<void> setSkillInput(
+    ConnectionProfile profile,
+    SkillInfo skill,
+    String value,
+  );
   Future<List<ChatMessage>> fetchChatHistory(
     ConnectionProfile profile, {
     String sessionKey = 'main',
@@ -22,6 +31,7 @@ abstract class OpenClawRepository {
     String message,
     List<ChatMessage> conversation, {
     String sessionKey = 'main',
+    List<ChatAttachment> attachments = const <ChatAttachment>[],
   });
 }
 
@@ -44,6 +54,17 @@ class OpenClawRepositoryRouter implements OpenClawRepository {
       return;
     }
     return _network!.approveDevice(profile, requestId);
+  }
+
+  @override
+  Future<void> removeTrustedDevice(
+    ConnectionProfile profile,
+    DeviceInfo device,
+  ) async {
+    if (_shouldUseFallback(profile)) {
+      return;
+    }
+    return _network!.removeTrustedDevice(profile, device);
   }
 
   @override
@@ -87,11 +108,24 @@ class OpenClawRepositoryRouter implements OpenClawRepository {
   }
 
   @override
+  Future<void> setSkillInput(
+    ConnectionProfile profile,
+    SkillInfo skill,
+    String value,
+  ) async {
+    if (_shouldUseFallback(profile)) {
+      return;
+    }
+    return _network!.setSkillInput(profile, skill, value);
+  }
+
+  @override
   Future<ChatMessage> sendMessage(
     ConnectionProfile profile,
     String message,
     List<ChatMessage> conversation, {
     String sessionKey = 'main',
+    List<ChatAttachment> attachments = const <ChatAttachment>[],
   }) async {
     if (_shouldUseFallback(profile)) {
       return _fallback.sendMessage(
@@ -99,6 +133,7 @@ class OpenClawRepositoryRouter implements OpenClawRepository {
         message,
         conversation,
         sessionKey: sessionKey,
+        attachments: attachments,
       );
     }
     return _network!.sendMessage(
@@ -106,6 +141,7 @@ class OpenClawRepositoryRouter implements OpenClawRepository {
       message,
       conversation,
       sessionKey: sessionKey,
+      attachments: attachments,
     );
   }
 
@@ -150,6 +186,12 @@ class DemoOpenClawRepository implements OpenClawRepository {
   Future<void> approveDevice(
     ConnectionProfile profile,
     String requestId,
+  ) async {}
+
+  @override
+  Future<void> removeTrustedDevice(
+    ConnectionProfile profile,
+    DeviceInfo device,
   ) async {}
 
   @override
@@ -303,6 +345,13 @@ class DemoOpenClawRepository implements OpenClawRepository {
   ) async {}
 
   @override
+  Future<void> setSkillInput(
+    ConnectionProfile profile,
+    SkillInfo skill,
+    String value,
+  ) async {}
+
+  @override
   Future<List<ChatMessage>> fetchChatHistory(
     ConnectionProfile profile, {
     String sessionKey = 'main',
@@ -324,6 +373,7 @@ class DemoOpenClawRepository implements OpenClawRepository {
     String message,
     List<ChatMessage> conversation, {
     String sessionKey = 'main',
+    List<ChatAttachment> attachments = const <ChatAttachment>[],
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 320));
     final String response = message.toLowerCase().contains('status')
@@ -438,6 +488,58 @@ class NetworkOpenClawRepository implements OpenClawRepository {
   }
 
   @override
+  Future<void> removeTrustedDevice(
+    ConnectionProfile profile,
+    DeviceInfo device,
+  ) async {
+    final String? deviceId = device.deviceId;
+    if (deviceId == null || deviceId.trim().isEmpty) {
+      throw const OpenClawApiException(
+        'This device entry does not include a removable device ID.',
+        400,
+      );
+    }
+    try {
+      await _callRpc(profile, 'device.remove', <String, dynamic>{
+        'deviceId': deviceId,
+      });
+    } on OpenClawApiException {
+      await _callRpc(profile, 'device.token.revoke', <String, dynamic>{
+        'deviceId': deviceId,
+        'role': device.role,
+      });
+    }
+  }
+
+  @override
+  Future<void> setSkillInput(
+    ConnectionProfile profile,
+    SkillInfo skill,
+    String value,
+  ) async {
+    final String? inputPath = skill.inputPath?.trim();
+    if (inputPath == null || inputPath.isEmpty) {
+      throw const OpenClawApiException(
+        'No configurable input path was found for this skill.',
+        400,
+      );
+    }
+    final Map<String, dynamic> current = await _callRpc(
+      profile,
+      'config.get',
+      const <String, dynamic>{},
+    );
+    final Map<String, dynamic> details = _unwrapGatewayResult(current);
+    final String? baseHash =
+        details['baseHash'] as String? ?? details['hash'] as String?;
+    await _callRpc(profile, 'config.patch', <String, dynamic>{
+      'baseHash': baseHash,
+      'patch': _buildConfigPatch(inputPath, value),
+      'note': 'Updated from ClawUI for ${skill.displayName}',
+    });
+  }
+
+  @override
   Future<List<DeviceInfo>> fetchDevices(ConnectionProfile profile) async {
     try {
       final Map<String, dynamic> devicesPayload = await _callRpc(
@@ -537,41 +639,60 @@ class NetworkOpenClawRepository implements OpenClawRepository {
     String message,
     List<ChatMessage> conversation, {
     String sessionKey = 'main',
+    List<ChatAttachment> attachments = const <ChatAttachment>[],
   }) async {
     final Map<String, dynamic> sendResult =
         await _callRpc(profile, 'chat.send', <String, dynamic>{
           'sessionKey': sessionKey,
           'message': message,
+          'attachments': attachments.map((ChatAttachment a) => a.toJson()).toList(),
           'deliver': false,
           'idempotencyKey': DateTime.now().millisecondsSinceEpoch.toString(),
         });
     final String? runId = sendResult['runId'] as String?;
-    await Future<void>.delayed(const Duration(seconds: 2));
-    final List<ChatMessage> history = await fetchChatHistory(
-      profile,
-      sessionKey: sessionKey,
-    );
-    final ChatMessage? assistantMessage = history.reversed.firstWhere(
-      (ChatMessage item) => item.role == MessageRole.assistant,
-      orElse: () => const ChatMessage(
-        role: MessageRole.system,
-        content: '',
-        timestampLabel: '',
-      ),
-    );
-    final String content = assistantMessage?.content.trim() ?? '';
-    if (content.isEmpty) {
-      throw OpenClawApiException(
-        runId == null
-            ? 'Chat request was sent, but no assistant reply was returned yet.'
-            : 'Chat run $runId did not produce a readable assistant reply yet.',
-        502,
-      );
+
+    // Poll for the reply instead of sleeping a fixed 2 seconds.
+    // Check every 400ms for up to 30 seconds.
+    const int maxAttempts = 75; // 75 × 400ms = 30s
+    const Duration pollInterval = Duration(milliseconds: 400);
+
+    for (int attempt = 0; attempt < maxAttempts; attempt++) {
+      await Future<void>.delayed(pollInterval);
+      try {
+        final List<ChatMessage> history = await fetchChatHistory(
+          profile,
+          sessionKey: sessionKey,
+        );
+        // Look for an assistant reply that came AFTER the user message.
+        // The last message in history should be the newest.
+        final ChatMessage? reply = history.reversed.firstWhere(
+          (ChatMessage item) => item.role == MessageRole.assistant,
+          orElse: () => const ChatMessage(
+            role: MessageRole.system,
+            content: '',
+            timestampLabel: '',
+          ),
+        );
+        if (reply != null && reply.content.trim().isNotEmpty) {
+          return ChatMessage(
+            role: MessageRole.assistant,
+            content: reply.content,
+            timestampLabel: reply.timestampLabel,
+            summary: reply.summary,
+            toolCalls: reply.toolCalls,
+            attachments: reply.attachments,
+          );
+        }
+      } catch (_) {
+        // Network hiccup during poll — continue trying
+      }
     }
-    return ChatMessage(
-      role: MessageRole.assistant,
-      content: content,
-      timestampLabel: 'now',
+
+    throw OpenClawApiException(
+      runId == null
+          ? 'Chat request was sent, but no assistant reply arrived within 30 seconds.'
+          : 'Chat run $runId did not produce a reply within 30 seconds.',
+      504,
     );
   }
 
@@ -1085,6 +1206,7 @@ class NetworkOpenClawRepository implements OpenClawRepository {
                 _readInt(device['updatedAtMs']) ??
                 _readInt(device['ts']),
           ),
+          deviceId: device['deviceId'] as String?,
           pendingApproval: true,
           requestId: device['requestId'] as String?,
         ),
@@ -1112,6 +1234,8 @@ class NetworkOpenClawRepository implements OpenClawRepository {
                 _readInt(device['updatedAtMs']) ??
                 _readInt(device['ts']),
           ),
+          deviceId: device['deviceId'] as String?,
+          role: device['role'] as String? ?? 'operator',
         ),
       );
     }
@@ -1143,6 +1267,10 @@ class NetworkOpenClawRepository implements OpenClawRepository {
               _readInt(node['updatedAtMs']) ??
               _readInt(node['ts']),
         ),
+        deviceId:
+            node['deviceId'] as String? ??
+            node['nodeId'] as String? ??
+            node['id'] as String?,
       );
     }).toList();
   }
@@ -1196,6 +1324,7 @@ class NetworkOpenClawRepository implements OpenClawRepository {
           skill['platforms'] ?? skill['platform'],
         ),
         group: _resolveSkillGroup(skill),
+        inputPath: _resolveSkillInputPath(skill, missing),
       );
     }).toList();
   }
@@ -1530,7 +1659,7 @@ String _formatSkillDetail(
     return 'Missing: $joined';
   }
   final List<String> platforms = _flattenSkillTokens(platformValue);
-  final String detail = rawDetail.trim();
+  final String detail = _cleanSkillText(rawDetail);
   if (platforms.isNotEmpty &&
       detail.isNotEmpty &&
       detail.toLowerCase() != 'ready') {
@@ -1559,18 +1688,67 @@ List<String> _flattenSkillTokens(dynamic value) {
       item.values.forEach(collect);
       return;
     }
-    final String normalized = item.toString().trim();
+    final String normalized = _cleanSkillText(item.toString());
     if (normalized.isEmpty ||
-        normalized == '[]' ||
-        normalized == '{}' ||
         normalized == 'null') {
+      return;
+    }
+    if (!RegExp(r'[A-Za-z0-9]').hasMatch(normalized)) {
       return;
     }
     tokens.add(normalized);
   }
 
   collect(value);
-  return tokens.toSet().toList();
+  return tokens
+      .map(_humanizeSkillToken)
+      .where((String token) => token.isNotEmpty)
+      .toSet()
+      .toList();
+}
+
+String _cleanSkillText(String raw) {
+  return raw
+      .replaceAll(RegExp(r'[\[\]\{\}]'), ' ')
+      .replaceAll(RegExp(r'\s*,\s*'), ', ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+String _humanizeSkillToken(String raw) {
+  final String cleaned = raw.trim().toLowerCase();
+  if (cleaned.isEmpty) {
+    return '';
+  }
+  const Map<String, String> tokenMap = <String, String>{
+    'darwin': 'macOS',
+    'ios': 'iOS',
+    'android': 'Android',
+    'memo': 'Memo',
+    'remindctl': 'Reminders',
+    'opl': '1Password CLI',
+    'gh': 'GitHub CLI',
+  };
+  return tokenMap[cleaned] ?? raw.trim();
+}
+
+String? _resolveSkillInputPath(Map<String, dynamic> skill, List<dynamic> missing) {
+  final String explicit =
+      (skill['inputPath'] as String? ??
+              skill['configPath'] as String? ??
+              skill['secretPath'] as String? ??
+              '')
+          .trim();
+  if (explicit.isNotEmpty) {
+    return explicit;
+  }
+  final List<String> missingTokens = _flattenSkillTokens(missing);
+  for (final String token in missingTokens) {
+    if (token.contains('.') && RegExp(r'[A-Za-z]').hasMatch(token)) {
+      return token;
+    }
+  }
+  return null;
 }
 
 String _scopeKey(Uri uri) {
@@ -1603,6 +1781,103 @@ String _extractMessageText(Map<String, dynamic>? message) {
   return '';
 }
 
+String? _resolveMessageSummary(Map<String, dynamic> message) {
+  final Map<String, dynamic> metadata = _readMap(
+    message['metadata'] ?? message['meta'],
+  );
+  final List<String> candidates = <String>[
+    message['summary'] as String? ?? '',
+    metadata['summary'] as String? ?? '',
+    metadata['workingOn'] as String? ?? '',
+    metadata['title'] as String? ?? '',
+  ].map((String value) => value.trim()).where((String value) => value.isNotEmpty).toList();
+  if (candidates.isEmpty) {
+    return null;
+  }
+  return candidates.first;
+}
+
+List<ChatToolCall> _resolveToolCalls(Map<String, dynamic> message) {
+  final Map<String, dynamic> metadata = _readMap(
+    message['metadata'] ?? message['meta'],
+  );
+  final List<dynamic> contentItems = message['content'] is List<dynamic>
+      ? message['content'] as List<dynamic>
+      : const <dynamic>[];
+  final List<dynamic> rawToolCalls = <dynamic>[
+    ..._readList(message['toolCalls'] ?? message['tool_calls']),
+    ..._readList(metadata['toolCalls'] ?? metadata['tool_calls']),
+  ];
+
+  for (final dynamic item in contentItems) {
+    if (item is! Map<String, dynamic>) {
+      continue;
+    }
+    final String type = (item['type'] as String? ?? '').trim().toLowerCase();
+    if (type.contains('tool') || type.contains('exec') || type.contains('step')) {
+      rawToolCalls.add(item);
+    }
+  }
+
+  return rawToolCalls
+      .map((dynamic item) => _toToolCall(item))
+      .whereType<ChatToolCall>()
+      .toList();
+}
+
+ChatToolCall? _toToolCall(dynamic raw) {
+  final Map<String, dynamic> item = _readMap(raw);
+  if (item.isEmpty) {
+    return null;
+  }
+  final String name =
+      (item['name'] as String? ??
+              item['tool'] as String? ??
+              item['title'] as String? ??
+              item['label'] as String? ??
+              item['id'] as String? ??
+              'Tool call')
+          .trim();
+  final String summary =
+      (item['summary'] as String? ??
+              item['statusText'] as String? ??
+              item['workingOn'] as String? ??
+              '')
+          .trim();
+  final String output =
+      (item['output'] as String? ??
+              item['result'] as String? ??
+              item['text'] as String? ??
+              _extractMessageText(item))
+          .trim();
+  return ChatToolCall(
+    name: name,
+    summary: summary.isEmpty ? null : summary,
+    output: output.isEmpty ? null : output,
+  );
+}
+
+Map<String, dynamic> _buildConfigPatch(String path, String value) {
+  final List<String> segments = path
+      .split('.')
+      .map((String item) => item.trim())
+      .where((String item) => item.isNotEmpty)
+      .toList();
+  Map<String, dynamic> root = <String, dynamic>{};
+  Map<String, dynamic> cursor = root;
+  for (int index = 0; index < segments.length; index++) {
+    final String segment = segments[index];
+    if (index == segments.length - 1) {
+      cursor[segment] = value;
+    } else {
+      final Map<String, dynamic> next = <String, dynamic>{};
+      cursor[segment] = next;
+      cursor = next;
+    }
+  }
+  return root;
+}
+
 ChatMessage? _toChatMessage(Map<String, dynamic> message) {
   final String roleRaw = (message['role'] as String? ?? '')
       .trim()
@@ -1626,6 +1901,24 @@ ChatMessage? _toChatMessage(Map<String, dynamic> message) {
           _readInt(message['createdAt']) ??
           _readInt(message['createdAtMs']),
     ),
+    summary: _resolveMessageSummary(message),
+    toolCalls: _resolveToolCalls(message),
+    attachments: _readList(message['attachments'])
+        .map((dynamic item) => _toChatAttachment(item))
+        .whereType<ChatAttachment>()
+        .toList(),
+  );
+}
+
+ChatAttachment? _toChatAttachment(dynamic raw) {
+  final Map<String, dynamic> item = _readMap(raw);
+  if (item.isEmpty) {
+    return null;
+  }
+  return ChatAttachment(
+    name: item['name'] as String? ?? 'file',
+    mimeType: item['mimeType'] as String? ?? 'application/octet-stream',
+    media: item['media'] as String? ?? item['dataUrl'] as String? ?? '',
   );
 }
 
