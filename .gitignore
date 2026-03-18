@@ -16,3 +16,6 @@ android/local.properties
 ios/Flutter/Generated.xcconfig
 ios/Flutter/ephemeral/
 CLAUDE.md
+
+# Local AI / tool config
+.claude/

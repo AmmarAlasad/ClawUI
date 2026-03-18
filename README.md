@@ -1,187 +1,332 @@
 # ClawUI
 
-ClawUI is a Flutter control surface for OpenClaw Gateway. This version keeps the existing app structure but replaces the old single-URL placeholder client with an explicit connection architecture built around documented gateway surfaces:
+ClawUI is a Flutter client for OpenClaw Gateway.
 
-- Gateway WebSocket concept
-- HTTP `POST /v1/chat/completions`
-- HTTP `POST /tools/invoke`
+The goal is simple: give OpenClaw a usable mobile-style control surface instead of forcing everything through terminal commands and raw HTTP calls. The app lets you connect to a gateway, save connection profiles, chat with the assistant, inspect sessions, look at devices and cron data, and surface installed skills in a way that feels like an operator console rather than a demo.
 
-## What Changed
+This repo is still early-stage, but it already contains the real connection model, gateway-facing repository code, secure secret storage, WebSocket support, and the main UI screens.
 
-- Connection profiles now support:
-  - direct URL
-  - host/IP + port
-  - Tailscale / MagicDNS
-- Auth modes are explicit and limited to:
-  - token
-  - password
-- URL construction is normalized from one profile into:
-  - HTTP base origin
-  - WebSocket origin
-  - `/v1/chat/completions`
-  - `/tools/invoke`
-  - `/readyz`
-  - `/healthz`
-- The network repository no longer uses placeholder `/api/mobile/*` routes.
-- Dashboard/session/device/cron data now comes from documented gateway-compatible surfaces:
-  - `sessions_list` via `/tools/invoke`
-  - `nodes` actions via `/tools/invoke`
-  - `cron` actions via `/tools/invoke`
-  - chat via `/v1/chat/completions`
-- Device approval buttons now call the repository instead of being dead UI.
+## What it does
 
-## Connection Model
+ClawUI is built around the documented OpenClaw gateway surfaces.
 
-The app stores a structured `ConnectionProfile` instead of a raw URL string.
+It currently covers these kinds of flows:
 
-Profile fields:
+- connect to an OpenClaw gateway by direct URL, host/port, or Tailscale-style hostname
+- authenticate with either a token or password
+- derive the correct HTTP and WebSocket endpoints from one saved profile
+- send chat messages through `/v1/chat/completions`
+- call operator tooling through `/tools/invoke`
+- inspect sessions, devices, cron information, and skills
+- keep connection secrets out of the normal profile store
+- support live or near-live session behavior over WebSocket
+- provide the groundwork for notifications/background behavior on mobile platforms
 
-- `targetKind`: `directUrl`, `hostPort`, `tailscale`
-- `transportSecurity`: `tls`, `insecure`
-- `authMode`: `token`, `password`
-- endpoint inputs:
-  - `directUrl`
-  - or `host` + `port`
-- secret values:
-  - `token`
-  - `password`
-- `demoMode`
+## Why this exists
 
-Derived surfaces:
+OpenClaw is powerful, but a lot of the operator experience still assumes you are comfortable in a shell. That is fine for development, but less ideal when you want to:
+
+- quickly check a deployment from your phone
+- chat with your assistant from a cleaner UI
+- inspect sessions or devices without hopping through multiple tools
+- test whether a LAN/Tailscale/gateway setup is actually reachable
+- have a proper client app instead of a pile of ad-hoc scripts
+
+ClawUI is meant to close that gap.
+
+## Current status
+
+This is not a polished consumer app yet. It is an active project and the structure is still being refined.
+
+What is already real:
+
+- Flutter project scaffold
+- Android platform files
+- web scaffold
+- connection profile model
+- secure secret storage
+- gateway repository layer
+- WebSocket/live session plumbing
+- screens for chat, devices, cron, skills, and settings
+
+What is still evolving:
+
+- UI polish
+- deeper feature coverage
+- better error handling and edge-case recovery
+- broader platform testing
+- production-hardening for background behavior
+
+## Tech stack
+
+Main choices in this project:
+
+- **Flutter** for the client UI
+- **Dart** for app logic
+- **flutter_secure_storage** for secrets such as connection auth material
+- **cryptography** for device identity / signing-related logic
+- **flutter_chat_ui** and **flutter_chat_core** for chat rendering primitives
+- **gpt_markdown** for markdown rendering in assistant output
+- **flutter_local_notifications** for local notification support
+- **flutter_background_service** for background execution groundwork
+- **image_picker**, **file_picker**, and **mime** for attachment-related flows
+
+## How the app is structured
+
+The important code lives in `lib/src` and is split by responsibility.
+
+### `lib/main.dart`
+
+Entry point for the Flutter app.
+
+### `lib/src/app/`
+
+App-level wiring.
+
+- `claw_ui_app.dart` sets up the app and high-level dependencies
+- `app_controller.dart` holds the main state and orchestration logic used by the UI
+- `app_scope.dart` exposes shared app state down the widget tree
+
+This layer is where profile loading, refresh logic, secret hydration, and top-level UI state come together.
+
+### `lib/src/core/`
+
+The actual application logic.
+
+Key files:
+
+- `models.dart`
+  - shared app models
+  - connection profile types
+  - enums and state objects used across the app
+- `openclaw_repository.dart`
+  - the main gateway-facing service layer
+  - turns UI actions into HTTP/tool/chat calls
+  - handles connection tests, overview loading, device actions, messaging, and other gateway interactions
+- `profile_store.dart`
+  - persistence model for saved connection profile data
+- `profile_store_factory_*.dart`
+  - platform-specific profile storage selection
+  - separates IO and web implementations
+- `connection_secret_store.dart`
+  - stores token/password data in secure storage instead of the plain profile store
+- `gateway_device_auth_store.dart`
+  - handles device identity and device token persistence
+  - includes device key material handling for gateway device auth flows
+- `gateway_http_client*.dart`
+  - HTTP transport abstraction and per-platform factories
+- `gateway_ws_client*.dart`
+  - WebSocket client abstraction and per-platform factories
+- `gateway_live_session*.dart`
+  - live session support built on top of the WebSocket layer
+- `background_notification_service.dart`
+  - background notification-related logic
+- `background_service_manager.dart`
+  - mobile background-service integration hooks
+- `theme.dart`
+  - app theme definitions
+
+In practice, `core/` is the part that actually makes the app useful. The UI mostly sits on top of this layer.
+
+### `lib/src/ui/`
+
+All visible screens and shared widgets.
+
+- `app_shell.dart`
+  - main shell/navigation wrapper
+- `connect_screen.dart`
+  - connection profile editing and validation UI
+- `home_screen.dart`
+  - top-level overview screen
+- `chat_screen.dart`
+  - chat interface for assistant interaction
+- `devices_screen.dart`
+  - device-related operator actions and visibility
+- `cron_screen.dart`
+  - cron-related data and actions
+- `skills_screen.dart`
+  - skill listing / presentation UI
+- `settings_screen.dart`
+  - local app settings and explanatory text
+- `widgets.dart`
+  - shared UI building blocks
+
+## File structure
+
+A cleaner view of the repo:
+
+```text
+ClawUI
+├── android/
+│   ├── app/
+│   ├── gradle/
+│   ├── build.gradle.kts
+│   └── settings.gradle.kts
+├── lib/
+│   ├── main.dart
+│   └── src/
+│       ├── app/
+│       │   ├── app_controller.dart
+│       │   ├── app_scope.dart
+│       │   └── claw_ui_app.dart
+│       ├── core/
+│       │   ├── background_notification_service.dart
+│       │   ├── background_service_manager.dart
+│       │   ├── connection_secret_store.dart
+│       │   ├── gateway_device_auth_store.dart
+│       │   ├── gateway_http_client.dart
+│       │   ├── gateway_http_client_base.dart
+│       │   ├── gateway_http_client_factory_io.dart
+│       │   ├── gateway_http_client_factory_stub.dart
+│       │   ├── gateway_http_client_factory_web.dart
+│       │   ├── gateway_live_session.dart
+│       │   ├── gateway_live_session_io.dart
+│       │   ├── gateway_live_session_stub.dart
+│       │   ├── gateway_ws_client.dart
+│       │   ├── gateway_ws_client_base.dart
+│       │   ├── gateway_ws_client_factory_io.dart
+│       │   ├── gateway_ws_client_factory_stub.dart
+│       │   ├── models.dart
+│       │   ├── openclaw_repository.dart
+│       │   ├── profile_store.dart
+│       │   ├── profile_store_factory_io.dart
+│       │   ├── profile_store_factory_stub.dart
+│       │   ├── profile_store_factory_web.dart
+│       │   └── theme.dart
+│       └── ui/
+│           ├── app_shell.dart
+│           ├── chat_screen.dart
+│           ├── connect_screen.dart
+│           ├── cron_screen.dart
+│           ├── devices_screen.dart
+│           ├── home_screen.dart
+│           ├── settings_screen.dart
+│           ├── skills_screen.dart
+│           └── widgets.dart
+├── test/
+│   └── widget_test.dart
+├── web/
+│   ├── index.html
+│   └── manifest.json
+├── analysis_options.yaml
+├── LICENSE
+├── pubspec.lock
+├── pubspec.yaml
+└── README.md
+```
+
+## How the connection model works
+
+The app does not just store one raw URL string and hope for the best.
+
+Instead, it stores a structured `ConnectionProfile` with fields such as:
+
+- target type
+- transport security mode
+- auth mode
+- direct URL or host/port input
+- demo mode flag
+
+From that profile, the app derives the actual gateway surfaces it needs:
 
 - HTTP origin
-- Gateway WebSocket origin
-- chat completions endpoint
-- tools endpoint
-- readiness and health probes
+- WebSocket origin
+- `/v1/chat/completions`
+- `/tools/invoke`
+- `/readyz`
+- `/healthz`
 
-The connect screen now shows the derived HTTP and WS endpoints before saving.
+This is important because OpenClaw deployments can vary:
 
-## Security Notes
+- localhost setups
+- LAN IPs
+- Tailscale or MagicDNS names
+- TLS and non-TLS environments
 
-This repo now prefers explicitness over convenience:
+The code tries to normalize those into something predictable and explicit.
 
-- Direct URLs are validated as origins only.
-  - No embedded credentials
-  - No path beyond `/`
-  - No query string
-  - No hash fragment
-- Host/IP and Tailscale profiles are normalized into canonical HTTP and WS origins.
-- Auth is never implicit.
-  - The app requires either a token or a password for live profiles
-- HTTP auth now matches the OpenClaw gateway behavior.
-  - Token and password are both sent as `Authorization: Bearer ...`
-  - Basic auth is not used
-- Insecure HTTP/WS is allowed only as an explicit choice.
-  - The UI warns that it should be limited to loopback or trusted tunnels
-- The profile store remains abstracted so secure storage can replace the current implementation later without changing the rest of the app.
+## How secrets are handled
 
-OpenClaw-specific deployment considerations reflected here:
+There are two important ideas in this codebase:
 
-- Non-loopback Control UI deployments should use explicit `gateway.controlUi.allowedOrigins`
-- Avoid `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback` unless you are intentionally using break-glass behavior
-- Prefer HTTPS/WSS for Tailscale or MagicDNS endpoints
+1. **connection profile data** is not the same thing as **connection secrets**
+2. **device auth material** is not the same thing as a normal saved profile
 
-## Architecture
+So the app separates them.
 
-`lib/src` remains organized by responsibility:
+- normal profile information is stored through the profile store
+- token/password secrets are stored through `flutter_secure_storage`
+- device token and device identity material are stored separately as device auth data
 
-- `app/`
-  - bootstrap
-  - controller
-  - inherited scope
-- `core/`
-  - models
-  - repository/router
-  - gateway HTTP adapters
-  - connection profile store
-  - theme
-- `ui/`
-  - connect
-  - dashboard
-  - chat
-  - devices
-  - cron
-  - settings
+That separation is intentional. It reduces the chance of casually dumping secrets into plain persisted app state.
 
-Notable implementation changes:
+## How gateway interaction works
 
-- `OpenClawRepository` now exposes:
-  - `fetchOverview`
-  - `testConnection`
-  - `approveDevice`
-  - `rejectDevice`
-  - `sendMessage`
-- `AppController.refresh()` now loads a single operator snapshot instead of making three unrelated placeholder calls
-- Common code no longer depends directly on `dart:io` for HTTP or profile persistence
-- Platform-specific profile stores and HTTP clients are selected with conditional imports
+Most gateway-facing logic is concentrated in `openclaw_repository.dart`.
 
-## Web Support
+That file is effectively the bridge between the UI and OpenClaw Gateway. It is responsible for things like:
 
-This repo now includes:
+- testing connectivity
+- building requests from the saved profile
+- calling documented HTTP endpoints
+- invoking tool-style actions through `/tools/invoke`
+- sending chat requests
+- handling device-related flows
+- pulling overview data used by the dashboard/screens
 
-- conditional profile storage:
-  - file-backed on IO platforms
-  - `localStorage` on web
-- conditional HTTP transport:
-  - `HttpClient` on IO platforms
-  - browser `HttpRequest` on web
-- minimal `web/` scaffolding so a future Flutter web run has the expected entry files
+If you want to understand the app quickly, that is one of the first files worth reading.
 
-This does not guarantee successful web builds in the current sandbox, but it removes some of the previous code-level blockers.
+## Platform split
 
-## Run
+This project already accounts for differences between platforms.
 
-On a normal writable Flutter machine:
+You will see `*_io.dart`, `*_web.dart`, and `*_stub.dart` patterns in the codebase. That is how the app switches between implementations for:
 
-1. `flutter pub get`
-2. `flutter run`
+- profile storage
+- HTTP transport
+- WebSocket handling
+- live session behavior
+
+That setup keeps most of the app code platform-agnostic while still allowing the right backend implementation underneath.
+
+## Running the project
+
+Typical local setup:
+
+```bash
+flutter pub get
+flutter run
+```
 
 For web:
 
-1. `flutter pub get`
-2. `flutter run -d chrome`
+```bash
+flutter pub get
+flutter run -d chrome
+```
 
-If native folders are still missing:
+If a clone is missing platform folders, Flutter can regenerate them:
 
-1. `flutter create . --platforms android,ios,web`
+```bash
+flutter create . --platforms android,ios,web
+```
 
-That should preserve `lib/` while generating platform scaffolding.
+## Development notes
 
-## What Works Here
+A few practical notes:
 
-Validated in this environment:
+- this repo has been worked on in environments where Flutter cache writes were constrained
+- depending on your machine, `flutter pub get`, `flutter analyze`, `flutter test`, or `flutter build` may fail until the SDK cache is writable
+- Android and web scaffolding are present, but not every environment used for development was capable of fully building the app end-to-end
 
-- repository and UI refactor completed
-- formatter ran successfully with the embedded Dart SDK:
-  - `/home/asapro/develop/flutter/bin/cache/dart-sdk/bin/dart format lib test web`
+So if something fails in a sandbox, that is not automatically a source-level problem.
 
-Partially validated:
+## License
 
-- `dart analyze` can be launched by forcing `HOME=/tmp`
-- without a resolved Flutter package config, analysis reports missing Flutter packages instead of meaningful source diagnostics
+This project is licensed under the **MIT License**. See [LICENSE](LICENSE).
 
-Blocked here:
+## Final note
 
-- `flutter pub get`
-- `flutter analyze`
-- `flutter test`
-- `flutter run`
-- `flutter build`
+This project is trying to be practical, not flashy.
 
-Reason:
-
-- the Flutter installation at `/home/asapro/develop/flutter` cannot update its cache stamp files in this sandbox
-
-## Important Files
-
-- `lib/src/core/models.dart`
-- `lib/src/core/openclaw_repository.dart`
-- `lib/src/core/profile_store.dart`
-- `lib/src/core/gateway_http_client.dart`
-- `lib/src/app/app_controller.dart`
-- `lib/src/ui/connect_screen.dart`
-- `lib/src/ui/home_screen.dart`
-- `lib/src/ui/settings_screen.dart`
-- `web/index.html`
-- `README.md`
+The point is not to build a generic “AI app”. The point is to build a solid OpenClaw client with a clean connection model, understandable code, and enough structure that it can grow without turning into a mess.
