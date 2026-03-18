@@ -1,7 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'gateway_device_auth_store.dart';
 import 'gateway_http_client.dart';
+import 'gateway_live_session.dart';
 import 'gateway_ws_client.dart';
 import 'models.dart';
 
@@ -32,7 +36,12 @@ abstract class OpenClawRepository {
     List<ChatMessage> conversation, {
     String sessionKey = 'main',
     List<ChatAttachment> attachments = const <ChatAttachment>[],
+    void Function(String accumulated)? onStreamChunk,
   });
+
+  /// Continuous stream of raw gateway event frames. Auto-reconnects on drop.
+  /// Emits `{type:'event', event:'chat.message'|'chat.reply'|..., payload:{...}}`.
+  Stream<Map<String, dynamic>> watchGatewayEvents(ConnectionProfile profile);
 }
 
 class OpenClawRepositoryRouter implements OpenClawRepository {
@@ -126,6 +135,7 @@ class OpenClawRepositoryRouter implements OpenClawRepository {
     List<ChatMessage> conversation, {
     String sessionKey = 'main',
     List<ChatAttachment> attachments = const <ChatAttachment>[],
+    void Function(String accumulated)? onStreamChunk,
   }) async {
     if (_shouldUseFallback(profile)) {
       return _fallback.sendMessage(
@@ -134,6 +144,7 @@ class OpenClawRepositoryRouter implements OpenClawRepository {
         conversation,
         sessionKey: sessionKey,
         attachments: attachments,
+        onStreamChunk: onStreamChunk,
       );
     }
     return _network!.sendMessage(
@@ -142,6 +153,7 @@ class OpenClawRepositoryRouter implements OpenClawRepository {
       conversation,
       sessionKey: sessionKey,
       attachments: attachments,
+      onStreamChunk: onStreamChunk,
     );
   }
 
@@ -154,6 +166,14 @@ class OpenClawRepositoryRouter implements OpenClawRepository {
       return _fallback.fetchChatHistory(profile, sessionKey: sessionKey);
     }
     return _network!.fetchChatHistory(profile, sessionKey: sessionKey);
+  }
+
+  @override
+  Stream<Map<String, dynamic>> watchGatewayEvents(ConnectionProfile profile) {
+    if (_shouldUseFallback(profile)) {
+      return _fallback.watchGatewayEvents(profile);
+    }
+    return _network!.watchGatewayEvents(profile);
   }
 
   @override
@@ -374,6 +394,7 @@ class DemoOpenClawRepository implements OpenClawRepository {
     List<ChatMessage> conversation, {
     String sessionKey = 'main',
     List<ChatAttachment> attachments = const <ChatAttachment>[],
+    void Function(String accumulated)? onStreamChunk,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 320));
     final String response = message.toLowerCase().contains('status')
@@ -387,6 +408,10 @@ class DemoOpenClawRepository implements OpenClawRepository {
       timestampLabel: 'now',
     );
   }
+
+  @override
+  Stream<Map<String, dynamic>> watchGatewayEvents(ConnectionProfile profile) =>
+      const Stream<Map<String, dynamic>>.empty();
 
   @override
   Future<ConnectionCheckResult> testConnection(
@@ -604,6 +629,37 @@ class NetworkOpenClawRepository implements OpenClawRepository {
   }
 
   @override
+  Stream<Map<String, dynamic>> watchGatewayEvents(
+    ConnectionProfile profile,
+  ) => _gatewayEventStream(profile);
+
+  /// Auto-reconnecting stream of raw gateway event frames.
+  Stream<Map<String, dynamic>> _gatewayEventStream(
+    ConnectionProfile profile,
+  ) async* {
+    if (kIsWeb) return;
+    while (true) {
+      try {
+        final String key = _scopeKey(profile.websocketUri);
+        final GatewayLiveSession session =
+            await GatewaySessionPool.instance
+                .acquire(
+                  key,
+                  profile.websocketUri,
+                  (GatewayWsChallenge c) => _buildConnectPayload(profile, c),
+                )
+                .timeout(const Duration(seconds: 15));
+        await for (final Map<String, dynamic> event in session.events) {
+          yield event;
+        }
+      } catch (_) {
+        // Session dropped or connect failed — wait then retry.
+      }
+      await Future<void>.delayed(const Duration(seconds: 3));
+    }
+  }
+
+  @override
   Future<List<ChatMessage>> fetchChatHistory(
     ConnectionProfile profile, {
     String sessionKey = 'main',
@@ -640,20 +696,126 @@ class NetworkOpenClawRepository implements OpenClawRepository {
     List<ChatMessage> conversation, {
     String sessionKey = 'main',
     List<ChatAttachment> attachments = const <ChatAttachment>[],
+    void Function(String accumulated)? onStreamChunk,
   }) async {
-    final Map<String, dynamic> sendResult =
-        await _callRpc(profile, 'chat.send', <String, dynamic>{
-          'sessionKey': sessionKey,
-          'message': message,
-          'attachments': attachments.map((ChatAttachment a) => a.toJson()).toList(),
-          'deliver': false,
-          'idempotencyKey': DateTime.now().millisecondsSinceEpoch.toString(),
-        });
-    final String? runId = sendResult['runId'] as String?;
+    // Record how many assistant messages exist BEFORE we send, so we can
+    // detect only the NEW reply rather than matching an old one.
+    final int existingAssistantCount =
+        conversation.where((ChatMessage m) => m.role == MessageRole.assistant).length;
 
-    // Poll for the reply instead of sleeping a fixed 2 seconds.
-    // Check every 400ms for up to 30 seconds.
-    const int maxAttempts = 75; // 75 × 400ms = 30s
+    // ── Streaming path (IO platforms with persistent session) ──────────────
+    // CRITICAL: subscribe to events BEFORE sending chat.send, otherwise early
+    // events emitted during the RPC's round-trip are lost on the broadcast stream.
+    if (!kIsWeb && onStreamChunk != null) {
+      try {
+        final String key = _scopeKey(profile.websocketUri);
+        final GatewayLiveSession session = await GatewaySessionPool.instance.acquire(
+          key,
+          profile.websocketUri,
+          (GatewayWsChallenge challenge) => _buildConnectPayload(profile, challenge),
+        ).timeout(const Duration(seconds: 15));
+
+        final StringBuffer buf = StringBuffer();
+        bool streamDone = false;
+        final StreamSubscription<Map<String, dynamic>> sub =
+            session.events.listen((Map<String, dynamic> event) {
+          final String eventName = event['event'] as String? ?? '';
+          if (eventName == 'chat.stream' ||
+              eventName == 'chat.reply' ||
+              eventName == 'chat.message') {
+            final Map<String, dynamic> payload =
+                event['payload'] as Map<String, dynamic>? ?? <String, dynamic>{};
+            final String role = payload['role'] as String? ?? '';
+            if (role == 'assistant' || role.isEmpty) {
+              final String delta = payload['delta'] as String? ?? '';
+              final String full =
+                  _extractTextContent(payload['text'] ?? payload['content']) ?? '';
+              if (delta.isNotEmpty) {
+                buf.write(delta);
+                onStreamChunk(buf.toString());
+              } else if (full.isNotEmpty) {
+                onStreamChunk(full);
+              }
+              if (payload['done'] as bool? ?? false) {
+                streamDone = true;
+              }
+            }
+          }
+        });
+
+        // Send AFTER subscribing so no events are missed.
+        // Only include 'message' when non-empty — gateway rejects empty strings.
+        final GatewayWsResponse sendResp = await session
+            .rpc('chat.send', <String, dynamic>{
+              'sessionKey': sessionKey,
+              if (message.isNotEmpty) 'message': message,
+              if (attachments.isNotEmpty)
+                'attachment': attachments
+                    .map((ChatAttachment a) => a.toJson())
+                    .toList(),
+              'deliver': false,
+              'idempotencyKey':
+                  DateTime.now().millisecondsSinceEpoch.toString(),
+            })
+            .timeout(const Duration(seconds: 30));
+
+        if (!sendResp.ok) {
+          await sub.cancel();
+          throw OpenClawApiException(
+            sendResp.errorMessage ?? 'chat.send failed',
+            403,
+          );
+        }
+        await _saveDeviceToken(profile, sendResp.payload);
+
+        // Give the gateway up to 3 s to start pushing events.
+        // If nothing arrives in that window, this gateway doesn't push stream
+        // events — cancel and fall through to polling immediately.
+        int coldWaits = 0;
+        while (!streamDone && buf.isEmpty && coldWaits < 15) {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          coldWaits++;
+        }
+        if (buf.isEmpty) {
+          await sub.cancel();
+          // Fall through to polling
+        } else {
+          // Events are flowing — wait up to 90 s for completion.
+          int waits = 0;
+          while (!streamDone && waits < 450) {
+            await Future<void>.delayed(const Duration(milliseconds: 200));
+            waits++;
+          }
+          await sub.cancel();
+          final String accumulated = buf.toString().trim();
+          if (accumulated.isNotEmpty) {
+            return ChatMessage(
+              role: MessageRole.assistant,
+              content: accumulated,
+              timestampLabel: 'now',
+            );
+          }
+          // Fall through to polling if stream ended with empty content
+        }
+      } catch (e) {
+        if (e is OpenClawApiException) rethrow;
+        // Session error — fall through to polling path
+      }
+    } else {
+      // No streaming — just send the message and let polling pick up the reply.
+      await _callRpc(profile, 'chat.send', <String, dynamic>{
+        'sessionKey': sessionKey,
+        if (message.isNotEmpty) 'message': message,
+        if (attachments.isNotEmpty)
+          'attachment': attachments.map((ChatAttachment a) => a.toJson()).toList(),
+        'deliver': false,
+        'idempotencyKey': DateTime.now().millisecondsSinceEpoch.toString(),
+      });
+    }
+
+    // ── Polling path ────────────────────────────────────────────────────────
+    // Poll for a NEW assistant reply (strictly more than before we sent).
+    const int maxAttempts = 150; // 150 × 400 ms = 60 s
     const Duration pollInterval = Duration(milliseconds: 400);
 
     for (int attempt = 0; attempt < maxAttempts; attempt++) {
@@ -663,37 +825,37 @@ class NetworkOpenClawRepository implements OpenClawRepository {
           profile,
           sessionKey: sessionKey,
         );
-        // Look for an assistant reply that came AFTER the user message.
-        // The last message in history should be the newest.
-        final ChatMessage? reply = history.reversed.firstWhere(
-          (ChatMessage item) => item.role == MessageRole.assistant,
-          orElse: () => const ChatMessage(
-            role: MessageRole.system,
-            content: '',
-            timestampLabel: '',
-          ),
-        );
-        if (reply != null && reply.content.trim().isNotEmpty) {
-          return ChatMessage(
-            role: MessageRole.assistant,
-            content: reply.content,
-            timestampLabel: reply.timestampLabel,
-            summary: reply.summary,
-            toolCalls: reply.toolCalls,
-            attachments: reply.attachments,
-          );
+        final List<ChatMessage> assistantMsgs = history
+            .where((ChatMessage m) => m.role == MessageRole.assistant)
+            .toList();
+        if (assistantMsgs.length > existingAssistantCount &&
+            assistantMsgs.last.content.trim().isNotEmpty) {
+          final ChatMessage newest = assistantMsgs.last;
+          onStreamChunk?.call(newest.content);
+          return newest;
         }
       } catch (_) {
         // Network hiccup during poll — continue trying
       }
     }
 
-    throw OpenClawApiException(
-      runId == null
-          ? 'Chat request was sent, but no assistant reply arrived within 30 seconds.'
-          : 'Chat run $runId did not produce a reply within 30 seconds.',
+    throw const OpenClawApiException(
+      'Chat request was sent, but no assistant reply arrived within 60 seconds.',
       504,
     );
+  }
+
+  static String? _extractTextContent(dynamic content) {
+    if (content is String) return content.trim().isEmpty ? null : content.trim();
+    if (content is List) {
+      for (final dynamic item in content) {
+        if (item is Map<String, dynamic>) {
+          final String? text = item['text'] as String?;
+          if (text != null && text.trim().isNotEmpty) return text.trim();
+        }
+      }
+    }
+    return null;
   }
 
   @override
@@ -912,45 +1074,30 @@ class NetworkOpenClawRepository implements OpenClawRepository {
 
   Future<_GatewayData?> _loadWsGatewayData(ConnectionProfile profile) async {
     try {
-      final Map<String, dynamic> sessionsPayload = await _callRpc(
-        profile,
-        'sessions.list',
-        <String, dynamic>{
+      // Fire all five requests concurrently over the same persistent session.
+      final List<Map<String, dynamic>> results =
+          await Future.wait(<Future<Map<String, dynamic>>>[
+        _callRpc(profile, 'sessions.list', <String, dynamic>{
           'includeGlobal': true,
           'includeUnknown': true,
           'limit': 20,
-        },
-      );
-      final Map<String, dynamic> devicesPayload = await _callRpc(
-        profile,
-        'device.pair.list',
-        const <String, dynamic>{},
-      );
-      Map<String, dynamic> nodesPayload = const <String, dynamic>{};
-      try {
-        nodesPayload = await _callRpc(
-          profile,
-          'node.list',
-          const <String, dynamic>{},
-        );
-      } on OpenClawApiException {
-        nodesPayload = const <String, dynamic>{};
-      }
-      final Map<String, dynamic> cronPayload = await _callRpc(
-        profile,
-        'cron.list',
-        <String, dynamic>{'includeDisabled': true, 'limit': 100, 'offset': 0},
-      );
-      Map<String, dynamic> skillsPayload = const <String, dynamic>{};
-      try {
-        skillsPayload = await _callRpc(
-          profile,
-          'skills.status',
-          const <String, dynamic>{},
-        );
-      } on OpenClawApiException {
-        skillsPayload = const <String, dynamic>{};
-      }
+        }),
+        _callRpc(profile, 'device.pair.list', const <String, dynamic>{}),
+        _callRpcOrEmpty(profile, 'node.list', const <String, dynamic>{}),
+        _callRpc(profile, 'cron.list', <String, dynamic>{
+          'includeDisabled': true,
+          'limit': 100,
+          'offset': 0,
+        }),
+        _callRpcOrEmpty(profile, 'skills.status', const <String, dynamic>{}),
+      ]);
+
+      final Map<String, dynamic> sessionsPayload = results[0];
+      final Map<String, dynamic> devicesPayload = results[1];
+      final Map<String, dynamic> nodesPayload = results[2];
+      final Map<String, dynamic> cronPayload = results[3];
+      final Map<String, dynamic> skillsPayload = results[4];
+
       return _GatewayData(
         sessions: _parseWsSessions(sessionsPayload),
         devices: _mergeDevices(
@@ -1077,7 +1224,67 @@ class NetworkOpenClawRepository implements OpenClawRepository {
     };
   }
 
+  /// Like [_callRpc] but returns an empty map instead of throwing on error.
+  Future<Map<String, dynamic>> _callRpcOrEmpty(
+    ConnectionProfile profile,
+    String method,
+    Map<String, dynamic> params,
+  ) async {
+    try {
+      return await _callRpc(profile, method, params);
+    } on OpenClawApiException {
+      return const <String, dynamic>{};
+    }
+  }
+
   Future<Map<String, dynamic>> _callRpc(
+    ConnectionProfile profile,
+    String method,
+    Map<String, dynamic> params,
+  ) async {
+    if (!kIsWeb) {
+      return _callRpcSession(profile, method, params);
+    }
+    return _callRpcDirect(profile, method, params);
+  }
+
+  Future<Map<String, dynamic>> _callRpcSession(
+    ConnectionProfile profile,
+    String method,
+    Map<String, dynamic> params,
+  ) async {
+    final String key = _scopeKey(profile.websocketUri);
+    try {
+      final GatewayLiveSession session = await GatewaySessionPool.instance.acquire(
+        key,
+        profile.websocketUri,
+        (GatewayWsChallenge challenge) => _buildConnectPayload(profile, challenge),
+      ).timeout(const Duration(seconds: 15));
+
+      GatewayWsResponse response = await session.rpc(method, params);
+      if (!response.ok && _shouldRetryDeviceAuth(response)) {
+        await _deviceAuthStore.clearDeviceToken(key);
+        GatewaySessionPool.instance.invalidate(key);
+        final GatewayLiveSession retry = await GatewaySessionPool.instance.acquire(
+          key,
+          profile.websocketUri,
+          (GatewayWsChallenge challenge) => _buildConnectPayload(profile, challenge),
+        ).timeout(const Duration(seconds: 15));
+        response = await retry.rpc(method, params);
+      }
+      if (!response.ok) {
+        throw OpenClawApiException(response.errorMessage ?? 'Request failed.', 403);
+      }
+      await _saveDeviceToken(profile, response.payload);
+      return response.payload;
+    } on StateError {
+      // Session disconnected mid-request — invalidate and fall back to per-call WS.
+      GatewaySessionPool.instance.invalidate(key);
+      return _callRpcDirect(profile, method, params);
+    }
+  }
+
+  Future<Map<String, dynamic>> _callRpcDirect(
     ConnectionProfile profile,
     String method,
     Map<String, dynamic> params,
@@ -1889,7 +2096,14 @@ ChatMessage? _toChatMessage(Map<String, dynamic> message) {
     _ => MessageRole.system,
   };
   final String content = _extractMessageText(message);
-  if (content.isEmpty) {
+  final List<ChatAttachment> attachments = <ChatAttachment>[
+    ..._readList(message['attachments'])
+        .map((dynamic item) => _toChatAttachment(item))
+        .whereType<ChatAttachment>(),
+    ..._extractImageAttachments(message),
+  ];
+  // Skip messages with no text and no attachments
+  if (content.isEmpty && attachments.isEmpty) {
     return null;
   }
   return ChatMessage(
@@ -1903,11 +2117,46 @@ ChatMessage? _toChatMessage(Map<String, dynamic> message) {
     ),
     summary: _resolveMessageSummary(message),
     toolCalls: _resolveToolCalls(message),
-    attachments: _readList(message['attachments'])
-        .map((dynamic item) => _toChatAttachment(item))
-        .whereType<ChatAttachment>()
-        .toList(),
+    attachments: attachments,
   );
+}
+
+/// Extracts image attachments from the OpenAI-format content array.
+/// Handles `{type: 'image_url', image_url: {url: '...'}}` items.
+List<ChatAttachment> _extractImageAttachments(Map<String, dynamic> message) {
+  final dynamic content = message['content'];
+  if (content is! List<dynamic>) {
+    return const <ChatAttachment>[];
+  }
+  final List<ChatAttachment> result = <ChatAttachment>[];
+  for (final dynamic item in content) {
+    if (item is! Map<String, dynamic>) {
+      continue;
+    }
+    final String type = (item['type'] as String? ?? '').toLowerCase();
+    if (type != 'image_url') {
+      continue;
+    }
+    final dynamic imageUrl = item['image_url'];
+    String url = '';
+    if (imageUrl is Map) {
+      url = (imageUrl['url'] as String? ?? '').trim();
+    } else if (imageUrl is String) {
+      url = imageUrl.trim();
+    }
+    if (url.isEmpty) {
+      continue;
+    }
+    String mimeType = 'image/jpeg';
+    if (url.startsWith('data:')) {
+      final int semicolon = url.indexOf(';');
+      if (semicolon > 5) {
+        mimeType = url.substring(5, semicolon);
+      }
+    }
+    result.add(ChatAttachment(name: 'image', mimeType: mimeType, media: url));
+  }
+  return result;
 }
 
 ChatAttachment? _toChatAttachment(dynamic raw) {

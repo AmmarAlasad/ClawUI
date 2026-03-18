@@ -79,15 +79,30 @@ class BackgroundNotificationService {
       _socket = await WebSocket.connect(wsUri.toString())
           .timeout(const Duration(seconds: 10));
 
-      // Send authentication/connect frame
+      // Send authentication/connect frame using the current protocol format.
+      final Map<String, dynamic> auth = <String, dynamic>{};
+      final String secret = _authSecret ?? _profile!.secret;
+      if (_profile!.authMode == AuthMode.token) {
+        auth['token'] = secret;
+      } else {
+        auth['password'] = secret;
+      }
       _socket!.add(jsonEncode(<String, dynamic>{
         'type': 'req',
         'id': 'req-bg-connect',
         'method': 'connect',
         'params': <String, dynamic>{
-          'mode': 'ui',
-          'secret': _authSecret ?? _profile!.secret,
-          'capabilities': <String>['chat.events'],
+          'minProtocol': 3,
+          'maxProtocol': 3,
+          'client': <String, dynamic>{
+            'id': 'openclaw-android-bg',
+            'version': '0.1.0',
+            'platform': 'android',
+          },
+          'role': 'operator',
+          'scopes': <String>['operator.read'],
+          'auth': auth,
+          'locale': 'en-US',
         },
       }));
 

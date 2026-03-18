@@ -52,7 +52,7 @@ class BackgroundServiceManager {
     await service.configure(
       androidConfiguration: AndroidConfiguration(
         onStart: onStart,
-        autoStart: true,
+        autoStart: false,
         isForegroundMode: true,
         notificationChannelId: 'openclaw_background_service',
         initialNotificationTitle: 'OpenClaw Active',

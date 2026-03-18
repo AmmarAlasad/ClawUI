@@ -15,7 +15,6 @@ class AppShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppScope.of(context);
     final int selectedIndex = controller.tabIndex.clamp(0, 5);
-    final bool isChat = selectedIndex == 1;
     final Widget screen = switch (selectedIndex) {
       0 => const HomeScreen(),
       1 => const ChatScreen(),
@@ -28,10 +27,7 @@ class AppShell extends StatelessWidget {
     return Scaffold(
       extendBody: true,
       body: screen,
-      // Hide the navigation bar when the user is in the Chat screen.
-      bottomNavigationBar: isChat
-          ? null
-          : Padding(
+      bottomNavigationBar: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: NavigationBar(
                 selectedIndex: selectedIndex,

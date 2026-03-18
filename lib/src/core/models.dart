@@ -382,6 +382,7 @@ class ChatMessage {
     this.summary,
     this.toolCalls = const <ChatToolCall>[],
     this.attachments = const <ChatAttachment>[],
+    this.isStreaming = false,
   });
 
   final MessageRole role;
@@ -390,6 +391,28 @@ class ChatMessage {
   final String? summary;
   final List<ChatToolCall> toolCalls;
   final List<ChatAttachment> attachments;
+  /// True while the assistant reply is being streamed token-by-token.
+  final bool isStreaming;
+
+  ChatMessage copyWith({
+    MessageRole? role,
+    String? content,
+    String? timestampLabel,
+    String? summary,
+    List<ChatToolCall>? toolCalls,
+    List<ChatAttachment>? attachments,
+    bool? isStreaming,
+  }) {
+    return ChatMessage(
+      role: role ?? this.role,
+      content: content ?? this.content,
+      timestampLabel: timestampLabel ?? this.timestampLabel,
+      summary: summary ?? this.summary,
+      toolCalls: toolCalls ?? this.toolCalls,
+      attachments: attachments ?? this.attachments,
+      isStreaming: isStreaming ?? this.isStreaming,
+    );
+  }
 }
 
 class ChatAttachment {

@@ -84,6 +84,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _showAutocomplete = false;
   List<_SlashCommand> _filteredCommands = const <_SlashCommand>[];
   bool _showAttachMenu = false;
+  bool _isPickerActive = false;
+  bool _sendingInProgress = false;
   final List<XFile> _pendingAttachments = <XFile>[];
 
   @override
@@ -166,57 +168,105 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _handleSend() async {
+    if (_sendingInProgress) return;
     final String text = _textController.text.trim();
     if (text.isEmpty && _pendingAttachments.isEmpty) return;
 
-    List<app_models.ChatAttachment> attachments = const <app_models.ChatAttachment>[];
-    if (_pendingAttachments.isNotEmpty) {
-      // Temporary copy to avoid state issues while encoding
-      final List<XFile> copy = List<XFile>.from(_pendingAttachments);
-      setState(() => _pendingAttachments.clear());
-      attachments = await Future.wait(
-        copy.map((XFile f) => _toChatAttachment(f)),
-      );
-    }
+    _sendingInProgress = true;
 
-    unawaited(_appController?.sendMessage(text, attachments: attachments));
+    // Snapshot attachments and clear UI immediately so a second tap can't race.
+    final List<XFile> toEncode = List<XFile>.from(_pendingAttachments);
     _textController.clear();
     setState(() {
+      _pendingAttachments.clear();
       _showAutocomplete = false;
       _showAttachMenu = false;
     });
+
+    List<app_models.ChatAttachment> attachments = const <app_models.ChatAttachment>[];
+    try {
+      if (toEncode.isNotEmpty) {
+        attachments = await Future.wait(
+          toEncode.map((XFile f) => _toChatAttachment(f)),
+        );
+      }
+    } catch (_) {
+      // Encoding failed — send without attachments rather than silently dropping the message.
+    } finally {
+      _sendingInProgress = false;
+    }
+
+    unawaited(_appController?.sendMessage(text, attachments: attachments));
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: source);
-    if (image != null) {
-      setState(() {
-        _pendingAttachments.add(image);
-        _showAttachMenu = false;
-      });
+    if (_isPickerActive) return;
+    setState(() => _isPickerActive = true);
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: source,
+        maxWidth: 1280,
+        maxHeight: 1280,
+        imageQuality: 85,
+      );
+      if (image != null && mounted) {
+        setState(() {
+          _pendingAttachments.add(image);
+          _showAttachMenu = false;
+        });
+      }
+    } catch (e) {
+      // Swallow already_active and other picker errors gracefully
+    } finally {
+      if (mounted) setState(() => _isPickerActive = false);
     }
   }
 
   Future<void> _pickFile() async {
-    final FilePickerResult? result = await FilePicker.platform.pickFiles();
-    if (result != null && result.files.isNotEmpty) {
-      final PlatformFile file = result.files.first;
-      if (file.path != null) {
-        setState(() {
-          _pendingAttachments.add(XFile(file.path!, name: file.name));
-          _showAttachMenu = false;
-        });
+    if (_isPickerActive) return;
+    setState(() => _isPickerActive = true);
+    try {
+      final FilePickerResult? result = await FilePicker.platform.pickFiles(
+        withData: true,
+      );
+      if (result != null && result.files.isNotEmpty && mounted) {
+        final PlatformFile file = result.files.first;
+        if (file.path != null) {
+          setState(() {
+            _pendingAttachments.add(XFile(file.path!, name: file.name));
+            _showAttachMenu = false;
+          });
+        } else if (file.bytes != null) {
+          final Directory tempDir = Directory.systemTemp;
+          final File tempFile = File('${tempDir.path}/${file.name}');
+          await tempFile.writeAsBytes(file.bytes!);
+          if (mounted) {
+            setState(() {
+              _pendingAttachments.add(XFile(tempFile.path, name: file.name));
+              _showAttachMenu = false;
+            });
+          }
+        }
       }
+    } catch (e) {
+      // Swallow already_active and other picker errors gracefully
+    } finally {
+      if (mounted) setState(() => _isPickerActive = false);
     }
   }
 
   // ─── Sync messages from AppController ─────────────────────────
   void _syncMessages(AppController app) {
+    // Combine confirmed messages with the in-progress streaming message (if any).
+    final List<app_models.ChatMessage> allMessages = <app_models.ChatMessage>[
+      ...app.messages,
+      if (app.streamingMessage != null) app.streamingMessage!,
+    ];
     // Build the UI message list, merging consecutive tool-output system
     // messages into the preceding assistant message as metadata.
     final List<chat_core.Message> next = _buildMergedMessageList(
-      app.messages,
+      allMessages,
       app.activeSessionKey,
     );
     if (_sameMessages(next, _lastMessages)) return;
@@ -275,6 +325,12 @@ class _ChatScreenState extends State<ChatScreen> {
     if (a.length != b.length) return false;
     for (int i = 0; i < a.length; i++) {
       if (a[i].id != b[i].id) return false;
+      // For streaming messages, also compare text so the bubble updates live.
+      final chat_core.Message ma = a[i];
+      final chat_core.Message mb = b[i];
+      if (ma is chat_core.TextMessage && mb is chat_core.TextMessage) {
+        if (ma.text != mb.text) return false;
+      }
     }
     return true;
   }
@@ -305,19 +361,27 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
+    // For streaming messages, use a time-based ID so the bubble updates
+    // in-place as chunks arrive without creating new entries.
+    final String msgId = message.isStreaming
+        ? '$sessionKey-streaming-${message.role.name}'
+        : '$sessionKey-${message.role.name}-$index-${message.content.hashCode}-${message.attachments.length}-${message.summary.hashCode}-${message.toolCalls.length}';
+
     return chat_core.Message.text(
-      id: '$sessionKey-${message.role.name}-$index-${message.content.hashCode}-${message.attachments.length}-${message.summary.hashCode}-${message.toolCalls.length}',
+      id: msgId,
       authorId: authorId,
       createdAt: ts,
       sentAt: ts,
       metadata: <String, dynamic>{
         'role': message.role.name,
         'summary': message.summary,
-        'attachments': [
+        'isStreaming': message.isStreaming,
+        'attachments': <Map<String, dynamic>>[
           for (final app_models.ChatAttachment a in message.attachments)
             <String, dynamic>{
               'name': a.name,
               'mimeType': a.mimeType,
+              'media': a.media,
             },
         ],
         'toolCalls': <Map<String, dynamic>>[
@@ -383,8 +447,8 @@ class _ChatScreenState extends State<ChatScreen> {
               sessions: sessions,
               selectedSessionKey: selectedKey,
               isSending: app.sendingMessage,
-              onBack: () => app.setTabIndex(0),
               onSessionChanged: (String k) => app.setActiveSessionKey(k),
+              unreadKeys: app.sessionsWithUnread,
             ),
             Expanded(
               child: Padding(
@@ -651,6 +715,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final Map<String, dynamic> meta = message.metadata ?? <String, dynamic>{};
     final String summary = (meta['summary'] as String? ?? '').trim();
     final List<dynamic> rawTools = meta['toolCalls'] as List<dynamic>? ?? const <dynamic>[];
+    final List<dynamic> rawAttachments = meta['attachments'] as List<dynamic>? ?? const <dynamic>[];
+    final bool isStreaming = meta['isStreaming'] as bool? ?? false;
     final String roleLabel = isSentByMe ? 'You' : (isAssistant ? 'Ivy' : 'OpenClaw');
     final IconData roleIcon = isSentByMe
         ? Icons.person_rounded
@@ -698,10 +764,22 @@ class _ChatScreenState extends State<ChatScreen> {
                   _SummaryNote(summary: summary),
                   const SizedBox(height: 6),
                 ],
-                if (isSentByMe)
+                if (isStreaming && message.text.isEmpty)
+                  const _TypingDots()
+                else if (isSentByMe)
                   Text(message.text, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onPrimary, height: 1.4))
+                else if (isStreaming)
+                  _StreamingText(text: message.text)
                 else
                   GptMarkdown(message.text, style: theme.textTheme.bodyMedium?.copyWith(height: 1.45)),
+                // Image attachments
+                for (final dynamic att in rawAttachments)
+                  if (att is Map<String, dynamic> &&
+                      (att['mimeType'] as String? ?? '').startsWith('image/') &&
+                      (att['media'] as String? ?? '').isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 8),
+                    _AttachmentImage(media: att['media'] as String),
+                  ],
                 // Tool calls — ICON ONLY — tap to open bottom sheet
                 if (!isSentByMe && rawTools.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 8),
@@ -747,6 +825,102 @@ class _ChatScreenState extends State<ChatScreen> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Attachment image widget — renders base64 data URIs and http(s) URLs
+// ─────────────────────────────────────────────────────────────────────
+class _AttachmentImage extends StatelessWidget {
+  const _AttachmentImage({required this.media});
+  final String media;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget img;
+    if (media.startsWith('data:')) {
+      final int commaIdx = media.indexOf(',');
+      if (commaIdx < 0) return const SizedBox.shrink();
+      final bytes = base64Decode(media.substring(commaIdx + 1));
+      img = Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
+    } else if (media.startsWith('http://') || media.startsWith('https://')) {
+      img = Image.network(media, fit: BoxFit.cover);
+    } else {
+      return const SizedBox.shrink();
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 260),
+        child: img,
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Typing / streaming indicators
+// ─────────────────────────────────────────────────────────────────────
+class _TypingDots extends StatefulWidget {
+  const _TypingDots();
+  @override
+  State<_TypingDots> createState() => _TypingDotsState();
+}
+
+class _TypingDotsState extends State<_TypingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color = Theme.of(context).colorScheme.primary;
+    return SizedBox(
+      height: 18,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: List<Widget>.generate(3, (int i) {
+          return AnimatedBuilder(
+            animation: _ctrl,
+            builder: (_, __) {
+              final double phase = ((_ctrl.value * 3) - i).clamp(0.0, 1.0);
+              final double opacity = 0.3 + 0.7 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2);
+              return Container(
+                margin: const EdgeInsets.symmetric(horizontal: 2),
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: opacity),
+                  shape: BoxShape.circle,
+                ),
+              );
+            },
+          );
+        }),
+      ),
+    );
+  }
+}
+
+/// Shows plain text while streaming (GptMarkdown needs complete Markdown).
+class _StreamingText extends StatelessWidget {
+  const _StreamingText({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.45),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 const chat_core.User _currentUser = chat_core.User(id: 'operator', name: 'You');
 const chat_core.User _ivyUser = chat_core.User(id: 'ivy', name: 'Ivy');
 const chat_core.User _systemUser = chat_core.User(id: 'system', name: 'OpenClaw');
@@ -759,48 +933,39 @@ class _ChatHeader extends StatelessWidget {
     required this.sessions,
     required this.selectedSessionKey,
     required this.isSending,
-    required this.onBack,
     required this.onSessionChanged,
+    required this.unreadKeys,
   });
   final List<app_models.SessionInfo> sessions;
   final String? selectedSessionKey;
   final bool isSending;
-  final VoidCallback onBack;
   final ValueChanged<String> onSessionChanged;
+  final Set<String> unreadKeys;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 6, 16, 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(20, 12, 16, 4),
+      child: Row(
         children: <Widget>[
-          Row(
-            children: <Widget>[
-              IconButton(onPressed: onBack, icon: const Icon(Icons.arrow_back_rounded), visualDensity: VisualDensity.compact),
-              const SizedBox(width: 4),
-              Text('Chat', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-              const Spacer(),
-              if (isSending)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(color: theme.colorScheme.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5, color: theme.colorScheme.primary)),
-                      const SizedBox(width: 6),
-                      Text('Working…', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.primary, fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                ),
-            ],
+          Expanded(
+            child: sessions.isNotEmpty
+                ? _SessionPicker(sessions: sessions, selectedKey: selectedSessionKey, onChanged: onSessionChanged, unreadKeys: unreadKeys)
+                : Text('Chat', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
           ),
-          if (sessions.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 0, 0),
-              child: _SessionPicker(sessions: sessions, selectedKey: selectedSessionKey, onChanged: onSessionChanged),
+          if (isSending)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(color: theme.colorScheme.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5, color: theme.colorScheme.primary)),
+                  const SizedBox(width: 6),
+                  Text('Working…', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.primary, fontWeight: FontWeight.w700)),
+                ],
+              ),
             ),
         ],
       ),
@@ -812,10 +977,16 @@ class _ChatHeader extends StatelessWidget {
 // Session picker
 // ─────────────────────────────────────────────────────────────────────
 class _SessionPicker extends StatelessWidget {
-  const _SessionPicker({required this.sessions, required this.selectedKey, required this.onChanged});
+  const _SessionPicker({
+    required this.sessions,
+    required this.selectedKey,
+    required this.onChanged,
+    this.unreadKeys = const <String>{},
+  });
   final List<app_models.SessionInfo> sessions;
   final String? selectedKey;
   final ValueChanged<String> onChanged;
+  final Set<String> unreadKeys;
 
   @override
   Widget build(BuildContext context) {
@@ -824,22 +995,53 @@ class _SessionPicker extends StatelessWidget {
       (app_models.SessionInfo s) => s.key == selectedKey,
       orElse: () => sessions.first,
     );
+    final bool anyUnread = sessions.any((app_models.SessionInfo s) =>
+        s.key != selectedKey && unreadKeys.contains(s.key));
     return PopupMenuButton<String>(
       onSelected: onChanged,
       offset: const Offset(0, 40),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       elevation: 3,
-      itemBuilder: (_) => sessions.map((app_models.SessionInfo s) => PopupMenuItem<String>(
-        value: s.key,
-        child: Row(
-          children: <Widget>[
-            Icon(Icons.chat_bubble_outline_rounded, size: 14, color: s.key == selectedKey ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.4)),
-            const SizedBox(width: 8),
-            Expanded(child: Text(s.title, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: s.key == selectedKey ? FontWeight.w700 : FontWeight.w400, color: s.key == selectedKey ? theme.colorScheme.primary : null))),
-            if (s.key == selectedKey) Icon(Icons.check_rounded, size: 14, color: theme.colorScheme.primary),
-          ],
-        ),
-      )).toList(),
+      itemBuilder: (_) => sessions.map((app_models.SessionInfo s) {
+        final bool hasUnread = s.key != selectedKey && unreadKeys.contains(s.key);
+        return PopupMenuItem<String>(
+          value: s.key,
+          child: Row(
+            children: <Widget>[
+              Icon(
+                Icons.chat_bubble_outline_rounded,
+                size: 14,
+                color: s.key == selectedKey
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurface.withValues(alpha: 0.4),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  s.title,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: s.key == selectedKey ? FontWeight.w700 : FontWeight.w400,
+                    color: s.key == selectedKey ? theme.colorScheme.primary : null,
+                  ),
+                ),
+              ),
+              if (hasUnread)
+                Container(
+                  width: 8,
+                  height: 8,
+                  margin: const EdgeInsets.only(left: 6),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                )
+              else if (s.key == selectedKey)
+                Icon(Icons.check_rounded, size: 14, color: theme.colorScheme.primary),
+            ],
+          ),
+        );
+      }).toList(),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
@@ -849,9 +1051,34 @@ class _SessionPicker extends StatelessWidget {
         ),
         child: Row(
           children: <Widget>[
-            Icon(Icons.chat_bubble_outline_rounded, size: 14, color: theme.colorScheme.primary),
+            Stack(
+              clipBehavior: Clip.none,
+              children: <Widget>[
+                Icon(Icons.chat_bubble_outline_rounded, size: 14, color: theme.colorScheme.primary),
+                if (anyUnread)
+                  Positioned(
+                    top: -3,
+                    right: -3,
+                    child: Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: theme.colorScheme.surface, width: 1),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(width: 6),
-            Expanded(child: Text(selected.title, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600))),
+            Expanded(
+              child: Text(
+                selected.title,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
             Icon(Icons.expand_more_rounded, size: 18, color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
           ],
         ),

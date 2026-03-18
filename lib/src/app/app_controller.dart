@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/background_notification_service.dart';
-import '../core/background_service_manager.dart';
 import '../core/connection_secret_store.dart';
 import '../core/models.dart';
 import '../core/openclaw_repository.dart';
@@ -31,6 +30,7 @@ class AppController extends ChangeNotifier {
   bool _testingConnection = false;
   bool _sendingMessage = false;
   bool _loadingChatHistory = false;
+  ChatMessage? _streamingMessage;
   bool _loadingDevices = false;
   bool _loadingCronJobs = false;
   bool _loadingSkills = false;
@@ -56,6 +56,11 @@ class AppController extends ChangeNotifier {
   ];
   String? _error;
 
+  // Continuous gateway event subscription + polling
+  StreamSubscription<Map<String, dynamic>>? _eventSub;
+  Timer? _chatPollTimer;
+  final Set<String> _sessionsWithUnread = <String>{};
+
   bool get ready => _ready;
   bool get busy => _busy;
   bool get testingConnection => _testingConnection;
@@ -74,7 +79,11 @@ class AppController extends ChangeNotifier {
   bool get approvalRequired => _approvalRequired;
   String? get approvalMessage => _approvalMessage;
   List<ChatMessage> get messages => _messages;
+  /// Non-null while an assistant reply is being streamed token-by-token.
+  ChatMessage? get streamingMessage => _streamingMessage;
   String? get error => _error;
+  /// Sessions that received a new message while not the active session.
+  Set<String> get sessionsWithUnread => _sessionsWithUnread;
 
   Future<void> initialize() async {
     final ConnectionProfile? storedProfile = await _profileStore.load();
@@ -94,7 +103,8 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     if (_profile != null) {
       BackgroundNotificationService.instance.start(_profile!, _profile!.secret);
-      // BackgroundServiceManager.instance.updateConfig(...); // Not strictly needed if foreground is enough, but good for persistence
+      _startGatewayListener();
+      _startChatPolling();
       unawaited(refresh());
     }
   }
@@ -105,13 +115,19 @@ class AppController extends ChangeNotifier {
     await _secretStore.save(profile);
     await _profileStore.save(profile.copyWith(token: '', password: ''));
     BackgroundNotificationService.instance.start(_profile!, _profile!.secret);
+    _startGatewayListener();
+    _startChatPolling();
     notifyListeners();
     unawaited(refresh());
   }
 
   Future<void> clearProfile() async {
+    _eventSub?.cancel();
+    _eventSub = null;
+    _chatPollTimer?.cancel();
+    _chatPollTimer = null;
+    _sessionsWithUnread.clear();
     BackgroundNotificationService.instance.stop();
-    BackgroundServiceManager.instance.stop();
     await _secretStore.clear();
     await _profileStore.clear();
     _profile = null;
@@ -122,6 +138,7 @@ class AppController extends ChangeNotifier {
     _cronJobs = const <CronJob>[];
     _skills = const <SkillInfo>[];
     _activeSessionKey = 'main';
+    _streamingMessage = null;
     _approvalRequired = false;
     _approvalMessage = null;
     _messages = const <ChatMessage>[
@@ -249,6 +266,13 @@ class AppController extends ChangeNotifier {
       attachments: attachments,
     );
     _messages = <ChatMessage>[..._messages, userMessage];
+    // Show typing indicator immediately
+    _streamingMessage = const ChatMessage(
+      role: MessageRole.assistant,
+      content: '',
+      timestampLabel: 'now',
+      isStreaming: true,
+    );
     _sendingMessage = true;
     notifyListeners();
 
@@ -259,15 +283,25 @@ class AppController extends ChangeNotifier {
         _messages,
         sessionKey: _activeSessionKey,
         attachments: attachments,
+        onStreamChunk: (String accumulated) {
+          _streamingMessage = ChatMessage(
+            role: MessageRole.assistant,
+            content: accumulated,
+            timestampLabel: 'now',
+            isStreaming: true,
+          );
+          notifyListeners();
+        },
       );
+      _streamingMessage = null;
       _messages = <ChatMessage>[..._messages, reply];
       _sendingMessage = false;
       notifyListeners();
       // Reload the full chat history from the server so we get the real
       // complete response (including tool call outputs, summaries, etc.)
-      // instead of the single stale reply.
       await _loadChatHistoryForActiveSession();
     } catch (error) {
+      _streamingMessage = null;
       _messages = <ChatMessage>[
         ..._messages,
         ChatMessage(
@@ -289,6 +323,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     _activeSessionKey = normalized;
+    _sessionsWithUnread.remove(normalized); // clear unread badge on switch
     _messages = const <ChatMessage>[
       ChatMessage(
         role: MessageRole.assistant,
@@ -320,9 +355,65 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _eventSub?.cancel();
+    _chatPollTimer?.cancel();
     _themeModeNotifier.dispose();
     super.dispose();
   }
+
+  // ── Persistent gateway event listener ──────────────────────────────────────
+
+  void _startGatewayListener() {
+    _eventSub?.cancel();
+    _eventSub = null;
+    final ConnectionProfile? profile = _profile;
+    if (profile == null) return;
+    _eventSub = _repository
+        .watchGatewayEvents(profile)
+        .listen(_handleGatewayEvent, onError: (_) {}, cancelOnError: false);
+  }
+
+  void _handleGatewayEvent(Map<String, dynamic> event) {
+    final String eventName = event['event'] as String? ?? '';
+    if (eventName != 'chat.message' &&
+        eventName != 'chat.reply' &&
+        eventName != 'chat.stream') {
+      return;
+    }
+    final Map<String, dynamic> payload =
+        event['payload'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final String role = (payload['role'] as String? ?? '').trim();
+    // Only care about assistant messages (ignore user echoes)
+    if (role.isNotEmpty && role != 'assistant') return;
+
+    final String? eventSession =
+        payload['sessionKey'] as String? ?? payload['session_key'] as String?;
+
+    if (eventSession == null || eventSession == _activeSessionKey) {
+      // New message in the active session — reload immediately if not sending
+      if (!_sendingMessage) {
+        unawaited(_loadChatHistoryForActiveSession());
+      }
+    } else {
+      // New message in a background session — mark as unread
+      _sessionsWithUnread.add(eventSession);
+      notifyListeners();
+    }
+  }
+
+  // ── Polling fallback (catches messages even when WS events don't fire) ─────
+
+  void _startChatPolling() {
+    _chatPollTimer?.cancel();
+    // Poll every 2 s while the Chat tab is visible and no send is in-flight.
+    _chatPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (_tabIndex == 1 && !_sendingMessage && !_loadingChatHistory) {
+        unawaited(_loadChatHistoryForActiveSession());
+      }
+    });
+  }
+
+  // ── Internal helpers ────────────────────────────────────────────────────────
 
   Future<void> _loadChatHistoryForActiveSession() async {
     final ConnectionProfile? profile = _profile;
