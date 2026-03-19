@@ -296,24 +296,33 @@ class DemoOpenClawRepository implements OpenClawRepository {
           pendingApprovals: 1,
           runningJobs: 4,
         ),
-        sessions: const <SessionInfo>[
+        sessions: <SessionInfo>[
           SessionInfo(
             key: 'deploy-staging-rollback',
             title: 'Deploy staging rollback',
             updatedAgo: 'Updated 3m ago',
             state: 'Running',
+            updatedAtMs: DateTime.now()
+                .subtract(const Duration(minutes: 3))
+                .millisecondsSinceEpoch,
           ),
           SessionInfo(
             key: 'investigate-gpu-node-drift',
             title: 'Investigate GPU node drift',
             updatedAgo: 'Updated 14m ago',
             state: 'Needs review',
+            updatedAtMs: DateTime.now()
+                .subtract(const Duration(minutes: 14))
+                .millisecondsSinceEpoch,
           ),
           SessionInfo(
             key: 'nightly-summary',
             title: 'Nightly summary',
             updatedAgo: 'Updated 48m ago',
             state: 'Idle',
+            updatedAtMs: DateTime.now()
+                .subtract(const Duration(minutes: 48))
+                .millisecondsSinceEpoch,
           ),
         ],
         connectedDevices: devices
@@ -993,6 +1002,7 @@ class NetworkOpenClawRepository implements OpenClawRepository {
                 title: item.label,
                 updatedAgo: _formatTimestamp(item.updatedAt),
                 state: item.kind,
+                updatedAtMs: item.updatedAt,
               ),
             )
             .toList() ??
@@ -1060,6 +1070,7 @@ class NetworkOpenClawRepository implements OpenClawRepository {
                     title: item.label,
                     updatedAgo: _formatTimestamp(item.updatedAt),
                     state: item.kind,
+                    updatedAtMs: item.updatedAt,
                   ),
                 )
                 .toList() ??
@@ -1354,6 +1365,11 @@ class NetworkOpenClawRepository implements OpenClawRepository {
     );
     return rawSessions.map((dynamic item) {
       final Map<String, dynamic> session = item as Map<String, dynamic>;
+      final int? updatedAtMs =
+          _readInt(session['updatedAt']) ??
+          _readInt(session['updatedAtMs']) ??
+          _readInt(session['lastMessageAt']) ??
+          _readInt(session['lastMessageAtMs']);
       return SessionInfo(
         key:
             (session['key'] as String? ??
@@ -1362,18 +1378,14 @@ class NetworkOpenClawRepository implements OpenClawRepository {
                     titleFromSession(session))
                 .trim(),
         title: titleFromSession(session),
-        updatedAgo: _formatTimestamp(
-          _readInt(session['updatedAt']) ??
-              _readInt(session['updatedAtMs']) ??
-              _readInt(session['lastMessageAt']) ??
-              _readInt(session['lastMessageAtMs']),
-        ),
+        updatedAgo: _formatTimestamp(updatedAtMs),
         state:
             (session['kind'] as String? ??
                     session['state'] as String? ??
                     session['status'] as String? ??
                     'session')
                 .trim(),
+        updatedAtMs: updatedAtMs,
       );
     }).toList();
   }

@@ -11,6 +11,22 @@ class ConnectScreen extends StatefulWidget {
   State<ConnectScreen> createState() => _ConnectScreenState();
 }
 
+enum _DiagnosticTone { info, success, warning }
+
+class _ConnectDiagnostic {
+  const _ConnectDiagnostic({
+    required this.title,
+    required this.message,
+    required this.tone,
+    this.action,
+  });
+
+  final String title;
+  final String message;
+  final _DiagnosticTone tone;
+  final String? action;
+}
+
 class _ConnectScreenState extends State<ConnectScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController(
@@ -82,10 +98,140 @@ class _ConnectScreenState extends State<ConnectScreen> {
     );
   }
 
+  List<_ConnectDiagnostic> _buildDiagnostics(
+    ConnectionProfile draft,
+    ConnectionCheckResult? result,
+  ) {
+    final List<_ConnectDiagnostic> diagnostics = <_ConnectDiagnostic>[];
+    final String endpoint = draft.endpointLabel;
+    diagnostics.add(
+      _ConnectDiagnostic(
+        title: 'Profile target',
+        message:
+            '${draft.targetLabel} · ${draft.transportLabel} · ${draft.authLabel} · $endpoint',
+        tone: _DiagnosticTone.info,
+        action: draft.demoMode
+            ? 'Demo mode is enabled, so saved profiles can be explored without a verified live gateway.'
+            : 'This is the exact gateway origin ClawUI will derive HTTP and WebSocket surfaces from.',
+      ),
+    );
+    for (final String note in draft.securityNotes()) {
+      diagnostics.add(
+        _ConnectDiagnostic(
+          title: 'Security note',
+          message: note,
+          tone: _DiagnosticTone.info,
+        ),
+      );
+    }
+    if (result == null) {
+      return diagnostics;
+    }
+
+    if (result.ok) {
+      diagnostics.add(
+        _ConnectDiagnostic(
+          title: 'Gateway verified',
+          message: result.message,
+          tone: _DiagnosticTone.success,
+          action:
+              'You can safely save this profile and start using chat, sessions, devices, cron, and skills.',
+        ),
+      );
+      return diagnostics;
+    }
+
+    final String normalized = result.message.trim().toLowerCase();
+    if (!result.reachable) {
+      diagnostics.add(
+        _ConnectDiagnostic(
+          title: 'Gateway unreachable',
+          message: result.message,
+          tone: _DiagnosticTone.warning,
+          action:
+              'Check the host/URL, port, tunnel, Tailscale route, and whether the gateway process is actually listening.',
+        ),
+      );
+      return diagnostics;
+    }
+
+    if (normalized.contains('pairing required') ||
+        normalized.contains('not paired') ||
+        normalized.contains('approve this device')) {
+      diagnostics.add(
+        _ConnectDiagnostic(
+          title: 'Device approval required',
+          message: result.message,
+          tone: _DiagnosticTone.warning,
+          action:
+              'Approve this device in OpenClaw first, then run the connection test again.',
+        ),
+      );
+      return diagnostics;
+    }
+
+    if (normalized.contains('missing scope:')) {
+      diagnostics.add(
+        _ConnectDiagnostic(
+          title: 'Scope mismatch',
+          message: result.message,
+          tone: _DiagnosticTone.warning,
+          action:
+              'The gateway is reachable, but this credential does not have the operator scope ClawUI needs.',
+        ),
+      );
+      return diagnostics;
+    }
+
+    if (!result.authenticated ||
+        normalized.contains('auth failed') ||
+        normalized.contains('unauthorized') ||
+        normalized.contains('rejected')) {
+      diagnostics.add(
+        _ConnectDiagnostic(
+          title: 'Authentication failed',
+          message: result.message,
+          tone: _DiagnosticTone.warning,
+          action:
+              'Double-check whether this gateway expects a token or a password, then verify the secret value itself.',
+        ),
+      );
+      return diagnostics;
+    }
+
+    if (!result.ready) {
+      diagnostics.add(
+        _ConnectDiagnostic(
+          title: 'Gateway not ready yet',
+          message: result.message,
+          tone: _DiagnosticTone.warning,
+          action:
+              'The process answered, but the operator surfaces are not ready yet. Wait a moment and test again.',
+        ),
+      );
+      return diagnostics;
+    }
+
+    diagnostics.add(
+      _ConnectDiagnostic(
+        title: 'Connection needs attention',
+        message: result.message,
+        tone: _DiagnosticTone.warning,
+        action:
+            'The gateway responded, but ClawUI still cannot confirm a healthy operator session. Re-check auth, scopes, and pairing.',
+      ),
+    );
+    return diagnostics;
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = AppScope.of(context);
     final ConnectionProfile draft = _buildProfile();
+    final List<_ConnectDiagnostic> diagnostics = _buildDiagnostics(
+      draft,
+      _lastCheck,
+    );
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -265,12 +411,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
                           });
                         },
                       ),
-                      ...draft.securityNotes().map(
-                        (String note) => Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(note),
-                        ),
-                      ),
                       if (_connectError != null) ...<Widget>[
                         const SizedBox(height: 16),
                         StatusBanner(
@@ -279,18 +419,14 @@ class _ConnectScreenState extends State<ConnectScreen> {
                           tone: BannerTone.warning,
                         ),
                       ],
-                      if (_lastCheck != null) ...<Widget>[
-                        const SizedBox(height: 16),
-                        StatusBanner(
-                          title: _lastCheck!.ok
-                              ? 'Connection verified'
-                              : 'Connection test failed',
-                          message: _lastCheck!.message,
-                          tone: _lastCheck!.ok
-                              ? BannerTone.info
-                              : BannerTone.warning,
+                      const SizedBox(height: 12),
+                      const SectionTitle('Connection Diagnostics'),
+                      ...diagnostics.map(
+                        (_ConnectDiagnostic diagnostic) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _DiagnosticCard(diagnostic: diagnostic),
                         ),
-                      ],
+                      ),
                       const SizedBox(height: 20),
                       Row(
                         children: <Widget>[
@@ -399,6 +535,76 @@ class _ConnectScreenState extends State<ConnectScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _DiagnosticCard extends StatelessWidget {
+  const _DiagnosticCard({required this.diagnostic});
+
+  final _ConnectDiagnostic diagnostic;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ({Color color, IconData icon}) style = switch (diagnostic.tone) {
+      _DiagnosticTone.info => (
+        color: theme.colorScheme.primary,
+        icon: Icons.info_outline_rounded,
+      ),
+      _DiagnosticTone.success => (
+        color: Colors.green,
+        icon: Icons.verified_rounded,
+      ),
+      _DiagnosticTone.warning => (
+        color: Colors.orangeAccent,
+        icon: Icons.warning_amber_rounded,
+      ),
+    };
+
+    return ClawCard(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: style.color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(style.icon, color: style.color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  diagnostic.title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(diagnostic.message),
+                if (diagnostic.action != null &&
+                    diagnostic.action!.trim().isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Text(
+                    diagnostic.action!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -330,12 +330,14 @@ class SessionInfo {
     required this.title,
     required this.updatedAgo,
     required this.state,
+    this.updatedAtMs,
   });
 
   final String key;
   final String title;
   final String updatedAgo;
   final String state;
+  final int? updatedAtMs;
 }
 
 class DashboardSnapshot {
