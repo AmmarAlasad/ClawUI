@@ -291,6 +291,8 @@ class ConnectionCheckResult {
     required this.message,
     this.httpStatusCode,
     this.checkedAt,
+    this.detailCode,
+    this.recommendedNextStep,
   });
 
   final bool reachable;
@@ -300,6 +302,8 @@ class ConnectionCheckResult {
   final int? httpStatusCode;
   final String message;
   final DateTime? checkedAt;
+  final String? detailCode;
+  final String? recommendedNextStep;
 
   bool get ok => reachable && authenticated && ready;
 }

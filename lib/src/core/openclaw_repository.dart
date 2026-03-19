@@ -965,6 +965,8 @@ class NetworkOpenClawRepository implements OpenClawRepository {
       httpStatusCode: probe.statusCode,
       message: probe.message,
       checkedAt: DateTime.now(),
+      detailCode: probe.detailCode,
+      recommendedNextStep: probe.recommendedNextStep,
     );
   }
 
@@ -1710,8 +1712,14 @@ class OpenClawApiClient {
       final Map<String, dynamic> error =
           json['error'] as Map<String, dynamic>? ?? <String, dynamic>{};
       throw OpenClawApiException(
-        error['message'] as String? ?? 'Tool invocation failed.',
+        _formatGatewayErrorMessage(
+              error['message'] as String?,
+              _readErrorCode(error),
+            ) ??
+            'Tool invocation failed.',
         response.statusCode,
+        detailCode: _readErrorCode(error),
+        recommendedNextStep: _readRecommendedNextStep(error),
       );
     }
     return json['result'] as Map<String, dynamic>? ?? <String, dynamic>{};
@@ -1794,6 +1802,8 @@ class OpenClawApiClient {
         latencyMs: stopwatch.elapsedMilliseconds,
         statusCode: error.statusCode,
         message: error.message,
+        detailCode: error.detailCode,
+        recommendedNextStep: error.recommendedNextStep,
       );
     }
   }
@@ -1812,9 +1822,16 @@ class OpenClawApiClient {
       includeJsonContentType: true,
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      final String? detailCode = _extractErrorDetailCode(response.body);
       throw OpenClawApiException(
-        _extractErrorMessage(response.body) ?? 'Gateway request failed.',
+        _formatGatewayErrorMessage(
+              _extractErrorMessage(response.body),
+              detailCode,
+            ) ??
+            'Gateway request failed.',
         response.statusCode,
+        detailCode: detailCode,
+        recommendedNextStep: _extractRecommendedNextStep(response.body),
       );
     }
     return response;
@@ -1847,6 +1864,8 @@ class ProbeResponse {
     required this.latencyMs,
     required this.message,
     required this.statusCode,
+    this.detailCode,
+    this.recommendedNextStep,
   });
 
   final bool reachable;
@@ -1855,13 +1874,22 @@ class ProbeResponse {
   final int latencyMs;
   final int statusCode;
   final String message;
+  final String? detailCode;
+  final String? recommendedNextStep;
 }
 
 class OpenClawApiException implements Exception {
-  const OpenClawApiException(this.message, this.statusCode);
+  const OpenClawApiException(
+    this.message,
+    this.statusCode, {
+    this.detailCode,
+    this.recommendedNextStep,
+  });
 
   final String message;
   final int statusCode;
+  final String? detailCode;
+  final String? recommendedNextStep;
 
   @override
   String toString() => message;
@@ -1889,6 +1917,68 @@ String? _extractErrorMessage(String body) {
   } catch (_) {
     return body.trim().isEmpty ? null : body.trim();
   }
+}
+
+String? _extractErrorDetailCode(String body) {
+  try {
+    final Map<String, dynamic> json = _decodeJsonObject(body);
+    final Map<String, dynamic> error = _readMap(json['error']);
+    return _readErrorCode(error);
+  } catch (_) {
+    return null;
+  }
+}
+
+String? _extractRecommendedNextStep(String body) {
+  try {
+    final Map<String, dynamic> json = _decodeJsonObject(body);
+    final Map<String, dynamic> error = _readMap(json['error']);
+    return _readRecommendedNextStep(error);
+  } catch (_) {
+    return null;
+  }
+}
+
+String? _readErrorCode(Map<String, dynamic> error) {
+  final Map<String, dynamic> details = _readMap(error['details']);
+  final String code = (details['code'] as String? ?? '').trim();
+  return code.isEmpty ? null : code;
+}
+
+String? _readRecommendedNextStep(Map<String, dynamic> error) {
+  final Map<String, dynamic> details = _readMap(error['details']);
+  final String step = (details['recommendedNextStep'] as String? ?? '').trim();
+  return step.isEmpty ? null : step;
+}
+
+String? _formatGatewayErrorMessage(String? rawMessage, String? detailCode) {
+  switch (detailCode) {
+    case 'AUTH_TOKEN_MISMATCH':
+      return 'Gateway token mismatch.';
+    case 'AUTH_UNAUTHORIZED':
+      return 'Gateway authentication failed.';
+    case 'AUTH_RATE_LIMITED':
+      return 'Too many failed authentication attempts.';
+    case 'PAIRING_REQUIRED':
+      return 'Gateway pairing required.';
+    case 'CONTROL_UI_DEVICE_IDENTITY_REQUIRED':
+      return 'Device identity required. Use HTTPS, localhost, or allow insecure auth explicitly.';
+    case 'CONTROL_UI_ORIGIN_NOT_ALLOWED':
+      return 'This origin is not allowed by the gateway control UI policy.';
+    case 'AUTH_TOKEN_MISSING':
+      return 'Gateway token missing.';
+  }
+  final String message = (rawMessage ?? '').trim();
+  if (message.isEmpty) {
+    return null;
+  }
+  final String normalized = message.toLowerCase();
+  if (normalized == 'fetch failed' ||
+      normalized == 'failed to fetch' ||
+      normalized == 'connect failed') {
+    return 'Gateway connection failed.';
+  }
+  return message;
 }
 
 String _formatSchedule(Map<String, dynamic> schedule) {

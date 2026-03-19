@@ -27,6 +27,228 @@ class _ConnectDiagnostic {
   final String? action;
 }
 
+const Set<String> _authFailureDetailCodes = <String>{
+  'AUTH_REQUIRED',
+  'AUTH_UNAUTHORIZED',
+  'AUTH_TOKEN_MISSING',
+  'AUTH_TOKEN_MISMATCH',
+  'AUTH_TOKEN_NOT_CONFIGURED',
+  'AUTH_PASSWORD_MISSING',
+  'AUTH_PASSWORD_MISMATCH',
+  'AUTH_PASSWORD_NOT_CONFIGURED',
+  'AUTH_BOOTSTRAP_TOKEN_INVALID',
+  'AUTH_DEVICE_TOKEN_MISMATCH',
+  'AUTH_RATE_LIMITED',
+  'AUTH_TAILSCALE_IDENTITY_MISSING',
+  'AUTH_TAILSCALE_PROXY_MISSING',
+  'AUTH_TAILSCALE_WHOIS_FAILED',
+  'AUTH_TAILSCALE_IDENTITY_MISMATCH',
+};
+
+bool isPairingRequired(ConnectionCheckResult result) {
+  if (result.detailCode == 'PAIRING_REQUIRED') {
+    return true;
+  }
+  final String normalized = result.message.trim().toLowerCase();
+  return normalized.contains('pairing required') ||
+      normalized.contains('not paired') ||
+      normalized.contains('approve this device');
+}
+
+bool isInsecureContextIssue(ConnectionCheckResult result) {
+  if (result.detailCode == 'CONTROL_UI_DEVICE_IDENTITY_REQUIRED' ||
+      result.detailCode == 'DEVICE_IDENTITY_REQUIRED' ||
+      result.detailCode == 'CONTROL_UI_ORIGIN_NOT_ALLOWED') {
+    return true;
+  }
+  final String normalized = result.message.trim().toLowerCase();
+  return normalized.contains('secure context') ||
+      normalized.contains('device identity required') ||
+      normalized.contains('origin not allowed');
+}
+
+bool isAuthenticationIssue(ConnectionCheckResult result) {
+  if (_authFailureDetailCodes.contains(result.detailCode)) {
+    return true;
+  }
+  final String normalized = result.message.trim().toLowerCase();
+  return !result.authenticated ||
+      normalized.contains('auth failed') ||
+      normalized.contains('unauthorized') ||
+      normalized.contains('rejected');
+}
+
+String authenticationActionFor(ConnectionCheckResult result) {
+  switch (result.detailCode) {
+    case 'AUTH_TOKEN_MISSING':
+    case 'AUTH_PASSWORD_MISSING':
+      return 'Enter the required credential, then run the test again.';
+    case 'AUTH_TOKEN_MISMATCH':
+    case 'AUTH_PASSWORD_MISMATCH':
+    case 'AUTH_UNAUTHORIZED':
+      return 'Double-check whether this gateway expects a token or a password, then verify the credential value itself.';
+    case 'AUTH_BOOTSTRAP_TOKEN_INVALID':
+      return 'This looks like an expired or wrong bootstrap token. Generate a fresh pairing/bootstrap secret from OpenClaw and try again.';
+    case 'AUTH_DEVICE_TOKEN_MISMATCH':
+      return 'The saved device token no longer matches this gateway. Re-test to trigger a fresh device-auth flow or re-pair this device.';
+    case 'AUTH_RATE_LIMITED':
+      return 'Wait a moment before retrying, then test again with the correct credential.';
+    case 'AUTH_TAILSCALE_IDENTITY_MISSING':
+    case 'AUTH_TAILSCALE_PROXY_MISSING':
+    case 'AUTH_TAILSCALE_WHOIS_FAILED':
+    case 'AUTH_TAILSCALE_IDENTITY_MISMATCH':
+      return 'Check the Tailscale path, identity policy, and whether the gateway can verify the connecting device identity.';
+  }
+
+  switch (result.recommendedNextStep) {
+    case 'wait_then_retry':
+      return 'Wait a moment, then run the test again.';
+    case 'update_auth_configuration':
+      return 'Review the gateway auth configuration, then test again.';
+    case 'update_auth_credentials':
+      return 'Update the credential in ClawUI to match the gateway, then test again.';
+    case 'retry_with_device_token':
+      return 'Retry so ClawUI can renegotiate device auth with the gateway.';
+    case 'review_auth_configuration':
+      return 'Review the gateway auth and control UI configuration for this device and origin.';
+  }
+
+  return 'Double-check whether this gateway expects a token or a password, then verify the secret value itself.';
+}
+
+List<_ConnectDiagnostic> buildConnectionDiagnostics(
+  ConnectionProfile draft,
+  ConnectionCheckResult? result,
+) {
+  final List<_ConnectDiagnostic> diagnostics = <_ConnectDiagnostic>[];
+  final String endpoint = draft.endpointLabel;
+  diagnostics.add(
+    _ConnectDiagnostic(
+      title: 'Profile target',
+      message:
+          '${draft.targetLabel} · ${draft.transportLabel} · ${draft.authLabel} · $endpoint',
+      tone: _DiagnosticTone.info,
+      action: draft.demoMode
+          ? 'Demo mode is enabled, so saved profiles can be explored without a verified live gateway.'
+          : 'This is the exact gateway origin ClawUI will derive HTTP and WebSocket surfaces from.',
+    ),
+  );
+  for (final String note in draft.securityNotes()) {
+    diagnostics.add(
+      _ConnectDiagnostic(
+        title: 'Security note',
+        message: note,
+        tone: _DiagnosticTone.info,
+      ),
+    );
+  }
+  if (result == null) {
+    return diagnostics;
+  }
+
+  if (result.ok) {
+    diagnostics.add(
+      _ConnectDiagnostic(
+        title: 'Gateway verified',
+        message: result.message,
+        tone: _DiagnosticTone.success,
+        action:
+            'You can safely save this profile and start using chat, sessions, devices, cron, and skills.',
+      ),
+    );
+    return diagnostics;
+  }
+
+  if (!result.reachable) {
+    diagnostics.add(
+      _ConnectDiagnostic(
+        title: 'Gateway unreachable',
+        message: result.message,
+        tone: _DiagnosticTone.warning,
+        action:
+            'Check the host/URL, port, tunnel, Tailscale route, and whether the gateway process is actually listening.',
+      ),
+    );
+    return diagnostics;
+  }
+
+  if (isPairingRequired(result)) {
+    diagnostics.add(
+      _ConnectDiagnostic(
+        title: 'Device approval required',
+        message: result.message,
+        tone: _DiagnosticTone.warning,
+        action:
+            'Approve this device in OpenClaw first, then run the connection test again.',
+      ),
+    );
+    return diagnostics;
+  }
+
+  if (result.message.trim().toLowerCase().contains('missing scope:')) {
+    diagnostics.add(
+      _ConnectDiagnostic(
+        title: 'Scope mismatch',
+        message: result.message,
+        tone: _DiagnosticTone.warning,
+        action:
+            'The gateway is reachable, but this credential does not have the operator scope ClawUI needs.',
+      ),
+    );
+    return diagnostics;
+  }
+
+  if (isInsecureContextIssue(result)) {
+    diagnostics.add(
+      _ConnectDiagnostic(
+        title: 'Connection policy blocked',
+        message: result.message,
+        tone: _DiagnosticTone.warning,
+        action: result.detailCode == 'CONTROL_UI_ORIGIN_NOT_ALLOWED'
+            ? 'Open ClawUI from an allowed origin or update gateway.controlUi.allowedOrigins.'
+            : 'Use HTTPS, localhost, or relax the gateway policy only if you trust the network path.',
+      ),
+    );
+    return diagnostics;
+  }
+
+  if (isAuthenticationIssue(result)) {
+    diagnostics.add(
+      _ConnectDiagnostic(
+        title: 'Authentication failed',
+        message: result.message,
+        tone: _DiagnosticTone.warning,
+        action: authenticationActionFor(result),
+      ),
+    );
+    return diagnostics;
+  }
+
+  if (!result.ready) {
+    diagnostics.add(
+      _ConnectDiagnostic(
+        title: 'Gateway not ready yet',
+        message: result.message,
+        tone: _DiagnosticTone.warning,
+        action:
+            'The process answered, but the operator surfaces are not ready yet. Wait a moment and test again.',
+      ),
+    );
+    return diagnostics;
+  }
+
+  diagnostics.add(
+    _ConnectDiagnostic(
+      title: 'Connection needs attention',
+      message: result.message,
+      tone: _DiagnosticTone.warning,
+      action:
+          'The gateway responded, but ClawUI still cannot confirm a healthy operator session. Re-check auth, scopes, and pairing.',
+    ),
+  );
+  return diagnostics;
+}
+
 class _ConnectScreenState extends State<ConnectScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController(
@@ -101,128 +323,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
   List<_ConnectDiagnostic> _buildDiagnostics(
     ConnectionProfile draft,
     ConnectionCheckResult? result,
-  ) {
-    final List<_ConnectDiagnostic> diagnostics = <_ConnectDiagnostic>[];
-    final String endpoint = draft.endpointLabel;
-    diagnostics.add(
-      _ConnectDiagnostic(
-        title: 'Profile target',
-        message:
-            '${draft.targetLabel} · ${draft.transportLabel} · ${draft.authLabel} · $endpoint',
-        tone: _DiagnosticTone.info,
-        action: draft.demoMode
-            ? 'Demo mode is enabled, so saved profiles can be explored without a verified live gateway.'
-            : 'This is the exact gateway origin ClawUI will derive HTTP and WebSocket surfaces from.',
-      ),
-    );
-    for (final String note in draft.securityNotes()) {
-      diagnostics.add(
-        _ConnectDiagnostic(
-          title: 'Security note',
-          message: note,
-          tone: _DiagnosticTone.info,
-        ),
-      );
-    }
-    if (result == null) {
-      return diagnostics;
-    }
-
-    if (result.ok) {
-      diagnostics.add(
-        _ConnectDiagnostic(
-          title: 'Gateway verified',
-          message: result.message,
-          tone: _DiagnosticTone.success,
-          action:
-              'You can safely save this profile and start using chat, sessions, devices, cron, and skills.',
-        ),
-      );
-      return diagnostics;
-    }
-
-    final String normalized = result.message.trim().toLowerCase();
-    if (!result.reachable) {
-      diagnostics.add(
-        _ConnectDiagnostic(
-          title: 'Gateway unreachable',
-          message: result.message,
-          tone: _DiagnosticTone.warning,
-          action:
-              'Check the host/URL, port, tunnel, Tailscale route, and whether the gateway process is actually listening.',
-        ),
-      );
-      return diagnostics;
-    }
-
-    if (normalized.contains('pairing required') ||
-        normalized.contains('not paired') ||
-        normalized.contains('approve this device')) {
-      diagnostics.add(
-        _ConnectDiagnostic(
-          title: 'Device approval required',
-          message: result.message,
-          tone: _DiagnosticTone.warning,
-          action:
-              'Approve this device in OpenClaw first, then run the connection test again.',
-        ),
-      );
-      return diagnostics;
-    }
-
-    if (normalized.contains('missing scope:')) {
-      diagnostics.add(
-        _ConnectDiagnostic(
-          title: 'Scope mismatch',
-          message: result.message,
-          tone: _DiagnosticTone.warning,
-          action:
-              'The gateway is reachable, but this credential does not have the operator scope ClawUI needs.',
-        ),
-      );
-      return diagnostics;
-    }
-
-    if (!result.authenticated ||
-        normalized.contains('auth failed') ||
-        normalized.contains('unauthorized') ||
-        normalized.contains('rejected')) {
-      diagnostics.add(
-        _ConnectDiagnostic(
-          title: 'Authentication failed',
-          message: result.message,
-          tone: _DiagnosticTone.warning,
-          action:
-              'Double-check whether this gateway expects a token or a password, then verify the secret value itself.',
-        ),
-      );
-      return diagnostics;
-    }
-
-    if (!result.ready) {
-      diagnostics.add(
-        _ConnectDiagnostic(
-          title: 'Gateway not ready yet',
-          message: result.message,
-          tone: _DiagnosticTone.warning,
-          action:
-              'The process answered, but the operator surfaces are not ready yet. Wait a moment and test again.',
-        ),
-      );
-      return diagnostics;
-    }
-
-    diagnostics.add(
-      _ConnectDiagnostic(
-        title: 'Connection needs attention',
-        message: result.message,
-        tone: _DiagnosticTone.warning,
-        action:
-            'The gateway responded, but ClawUI still cannot confirm a healthy operator session. Re-check auth, scopes, and pairing.',
-      ),
-    );
-    return diagnostics;
-  }
+  ) => buildConnectionDiagnostics(draft, result);
 
   @override
   Widget build(BuildContext context) {
@@ -596,7 +697,9 @@ class _DiagnosticCard extends StatelessWidget {
                   Text(
                     diagnostic.action!,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.72,
+                      ),
                       fontWeight: FontWeight.w600,
                     ),
                   ),
