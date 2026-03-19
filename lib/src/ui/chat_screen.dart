@@ -13,6 +13,7 @@ import 'package:mime/mime.dart';
 import '../app/app_scope.dart';
 import '../app/app_controller.dart';
 import '../core/models.dart' as app_models;
+import 'session_overview.dart';
 
 // ─────────────────────────────────────────────────────────────────────
 // Slash-command definitions — full OpenClaw command set
@@ -25,21 +26,61 @@ class _SlashCommand {
 }
 
 const List<_SlashCommand> _slashCommands = <_SlashCommand>[
-  _SlashCommand('/status', 'Gateway status & diagnostics', Icons.monitor_heart_outlined),
+  _SlashCommand(
+    '/status',
+    'Gateway status & diagnostics',
+    Icons.monitor_heart_outlined,
+  ),
   _SlashCommand('/help', 'Show available commands', Icons.help_outline_rounded),
-  _SlashCommand('/skill', 'Run a skill — /skill <name> [input]', Icons.extension_outlined),
+  _SlashCommand(
+    '/skill',
+    'Run a skill — /skill <name> [input]',
+    Icons.extension_outlined,
+  ),
   _SlashCommand('/sessions', 'List active sessions', Icons.forum_outlined),
-  _SlashCommand('/devices', 'List connected & pending devices', Icons.devices_other_outlined),
+  _SlashCommand(
+    '/devices',
+    'List connected & pending devices',
+    Icons.devices_other_outlined,
+  ),
   _SlashCommand('/cron', 'Show cron job summary', Icons.schedule_outlined),
-  _SlashCommand('/approve', 'Approve a pending device', Icons.check_circle_outline),
+  _SlashCommand(
+    '/approve',
+    'Approve a pending device',
+    Icons.check_circle_outline,
+  ),
   _SlashCommand('/reject', 'Reject a pending device', Icons.cancel_outlined),
-  _SlashCommand('/config', 'View or patch gateway config', Icons.settings_outlined),
+  _SlashCommand(
+    '/config',
+    'View or patch gateway config',
+    Icons.settings_outlined,
+  ),
   _SlashCommand('/logs', 'Show recent gateway logs', Icons.article_outlined),
-  _SlashCommand('/restart', 'Restart the gateway process', Icons.restart_alt_rounded),
-  _SlashCommand('/update', 'Check for & apply updates', Icons.system_update_outlined),
-  _SlashCommand('/whoami', 'Show current operator identity', Icons.badge_outlined),
-  _SlashCommand('/ping', 'Ping the gateway for latency', Icons.network_ping_rounded),
-  _SlashCommand('/clear', 'Clear current session messages', Icons.clear_all_rounded),
+  _SlashCommand(
+    '/restart',
+    'Restart the gateway process',
+    Icons.restart_alt_rounded,
+  ),
+  _SlashCommand(
+    '/update',
+    'Check for & apply updates',
+    Icons.system_update_outlined,
+  ),
+  _SlashCommand(
+    '/whoami',
+    'Show current operator identity',
+    Icons.badge_outlined,
+  ),
+  _SlashCommand(
+    '/ping',
+    'Ping the gateway for latency',
+    Icons.network_ping_rounded,
+  ),
+  _SlashCommand(
+    '/clear',
+    'Clear current session messages',
+    Icons.clear_all_rounded,
+  ),
   _SlashCommand('/run', 'Execute a raw shell command', Icons.terminal_rounded),
   _SlashCommand('/search', 'Search indexed documents', Icons.search_rounded),
   _SlashCommand('/model', 'Show or switch AI model', Icons.psychology_outlined),
@@ -144,8 +185,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _selectCommand(_SlashCommand cmd) {
     final bool needsArg =
-        cmd.command == '/skill' || cmd.command == '/run' ||
-        cmd.command == '/search' || cmd.command == '/schedule';
+        cmd.command == '/skill' ||
+        cmd.command == '/run' ||
+        cmd.command == '/search' ||
+        cmd.command == '/schedule';
     _textController.text = needsArg ? '${cmd.command} ' : cmd.command;
     _textController.selection = TextSelection.fromPosition(
       TextPosition(offset: _textController.text.length),
@@ -159,7 +202,8 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<app_models.ChatAttachment> _toChatAttachment(XFile file) async {
     final List<int> bytes = await file.readAsBytes();
     final String base64String = base64Encode(bytes);
-    final String mimeType = lookupMimeType(file.path) ?? 'application/octet-stream';
+    final String mimeType =
+        lookupMimeType(file.path) ?? 'application/octet-stream';
     return app_models.ChatAttachment(
       name: file.name,
       mimeType: mimeType,
@@ -183,7 +227,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _showAttachMenu = false;
     });
 
-    List<app_models.ChatAttachment> attachments = const <app_models.ChatAttachment>[];
+    List<app_models.ChatAttachment> attachments =
+        const <app_models.ChatAttachment>[];
     try {
       if (toEncode.isNotEmpty) {
         attachments = await Future.wait(
@@ -290,10 +335,12 @@ class _ChatScreenState extends State<ChatScreen> {
       if (_isToolOutput(msg) && out.isNotEmpty) {
         final chat_core.Message prev = out.last;
         if (prev is chat_core.TextMessage) {
-          final Map<String, dynamic> meta =
-              Map<String, dynamic>.from(prev.metadata ?? <String, dynamic>{});
-          final List<dynamic> existingTools =
-              List<dynamic>.from(meta['toolCalls'] as List<dynamic>? ?? <dynamic>[]);
+          final Map<String, dynamic> meta = Map<String, dynamic>.from(
+            prev.metadata ?? <String, dynamic>{},
+          );
+          final List<dynamic> existingTools = List<dynamic>.from(
+            meta['toolCalls'] as List<dynamic>? ?? <dynamic>[],
+          );
           existingTools.add(<String, dynamic>{
             'name': 'Tool output',
             'summary': '',
@@ -318,10 +365,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return out;
   }
 
-  bool _sameMessages(
-    List<chat_core.Message> a,
-    List<chat_core.Message> b,
-  ) {
+  bool _sameMessages(List<chat_core.Message> a, List<chat_core.Message> b) {
     if (a.length != b.length) return false;
     for (int i = 0; i < a.length; i++) {
       if (a[i].id != b[i].id) return false;
@@ -357,7 +401,8 @@ class _ChatScreenState extends State<ChatScreen> {
     String finalContent = message.content;
     if (message.attachments.isNotEmpty) {
       for (final app_models.ChatAttachment a in message.attachments) {
-        finalContent += '\n[Attached ${a.mimeType.startsWith('image/') ? 'image' : 'file'}: ${a.name}]';
+        finalContent +=
+            '\n[Attached ${a.mimeType.startsWith('image/') ? 'image' : 'file'}: ${a.name}]';
       }
     }
 
@@ -400,9 +445,11 @@ class _ChatScreenState extends State<ChatScreen> {
   DateTime _tsFromLabel(String label, int index) {
     final String n = label.trim().toLowerCase();
     final DateTime now = DateTime.now();
-    if (n == 'now' || n == 'just now') return now.subtract(Duration(seconds: index));
+    if (n == 'now' || n == 'just now')
+      return now.subtract(Duration(seconds: index));
     final RegExpMatch? m = RegExp(r'^(\d+)m ago$').firstMatch(n);
-    if (m != null) return now.subtract(Duration(minutes: int.parse(m.group(1)!)));
+    if (m != null)
+      return now.subtract(Duration(minutes: int.parse(m.group(1)!)));
     final RegExpMatch? h = RegExp(r'^(\d+)h ago$').firstMatch(n);
     if (h != null) return now.subtract(Duration(hours: int.parse(h.group(1)!)));
     final RegExpMatch? d = RegExp(r'^(\d+)d ago$').firstMatch(n);
@@ -436,8 +483,16 @@ class _ChatScreenState extends State<ChatScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: theme.brightness == Brightness.dark
-              ? const <Color>[Color(0xFF0E1016), Color(0xFF131720), Color(0xFF171B25)]
-              : const <Color>[Color(0xFFF7F4F3), Color(0xFFF3EFEE), Color(0xFFF8F6F5)],
+              ? const <Color>[
+                  Color(0xFF0E1016),
+                  Color(0xFF131720),
+                  Color(0xFF171B25),
+                ]
+              : const <Color>[
+                  Color(0xFFF7F4F3),
+                  Color(0xFFF3EFEE),
+                  Color(0xFFF8F6F5),
+                ],
         ),
       ),
       child: SafeArea(
@@ -473,9 +528,11 @@ class _ChatScreenState extends State<ChatScreen> {
                         onPrimary: theme.colorScheme.onPrimary,
                         surface: Colors.transparent,
                         onSurface: theme.colorScheme.onSurface,
-                        surfaceContainer: theme.cardTheme.color ?? theme.colorScheme.surface,
+                        surfaceContainer:
+                            theme.cardTheme.color ?? theme.colorScheme.surface,
                         surfaceContainerLow: theme.colorScheme.surface,
-                        surfaceContainerHigh: theme.colorScheme.surfaceContainerHigh,
+                        surfaceContainerHigh:
+                            theme.colorScheme.surfaceContainerHigh,
                       ),
                     ),
                   ),
@@ -505,9 +562,15 @@ class _ChatScreenState extends State<ChatScreen> {
               decoration: BoxDecoration(
                 color: theme.colorScheme.surface,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.18)),
+                border: Border.all(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.18),
+                ),
                 boxShadow: <BoxShadow>[
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 12, offset: const Offset(0, -4)),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 12,
+                    offset: const Offset(0, -4),
+                  ),
                 ],
               ),
               child: ListView.builder(
@@ -520,25 +583,46 @@ class _ChatScreenState extends State<ChatScreen> {
                     borderRadius: BorderRadius.circular(10),
                     onTap: () => _selectCommand(cmd),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       child: Row(
                         children: <Widget>[
                           Container(
                             width: 30,
                             height: 30,
                             decoration: BoxDecoration(
-                              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.1,
+                              ),
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            child: Icon(cmd.icon, size: 16, color: theme.colorScheme.primary),
+                            child: Icon(
+                              cmd.icon,
+                              size: 16,
+                              color: theme.colorScheme.primary,
+                            ),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: <Widget>[
-                                Text(cmd.command, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700, color: theme.colorScheme.primary)),
-                                Text(cmd.label, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: 0.5))),
+                                Text(
+                                  cmd.command,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                ),
+                                Text(
+                                  cmd.label,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.5),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -570,7 +654,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       color: theme.colorScheme.surface,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                        color: theme.colorScheme.primary.withValues(
+                          alpha: 0.15,
+                        ),
                       ),
                     ),
                     child: Stack(
@@ -627,14 +713,31 @@ class _ChatScreenState extends State<ChatScreen> {
               decoration: BoxDecoration(
                 color: theme.colorScheme.surface,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.12)),
+                border: Border.all(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                ),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: <Widget>[
-                  _AttachOption(icon: Icons.camera_alt_rounded, label: 'Camera', color: theme.colorScheme.primary, onTap: () => _pickImage(ImageSource.camera)),
-                  _AttachOption(icon: Icons.photo_library_rounded, label: 'Gallery', color: Colors.orange, onTap: () => _pickImage(ImageSource.gallery)),
-                  _AttachOption(icon: Icons.insert_drive_file_rounded, label: 'File', color: Colors.blueAccent, onTap: _pickFile),
+                  _AttachOption(
+                    icon: Icons.camera_alt_rounded,
+                    label: 'Camera',
+                    color: theme.colorScheme.primary,
+                    onTap: () => _pickImage(ImageSource.camera),
+                  ),
+                  _AttachOption(
+                    icon: Icons.photo_library_rounded,
+                    label: 'Gallery',
+                    color: Colors.orange,
+                    onTap: () => _pickImage(ImageSource.gallery),
+                  ),
+                  _AttachOption(
+                    icon: Icons.insert_drive_file_rounded,
+                    label: 'File',
+                    color: Colors.blueAccent,
+                    onTap: _pickFile,
+                  ),
                 ],
               ),
             ),
@@ -644,21 +747,30 @@ class _ChatScreenState extends State<ChatScreen> {
             decoration: BoxDecoration(
               color: theme.colorScheme.surface,
               borderRadius: BorderRadius.circular(28),
-              border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.12)),
+              border: Border.all(
+                color: theme.colorScheme.primary.withValues(alpha: 0.12),
+              ),
               boxShadow: <BoxShadow>[
-                BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2)),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
               ],
             ),
             child: Row(
               children: <Widget>[
                 IconButton(
-                  onPressed: () => setState(() => _showAttachMenu = !_showAttachMenu),
+                  onPressed: () =>
+                      setState(() => _showAttachMenu = !_showAttachMenu),
                   icon: AnimatedRotation(
                     turns: _showAttachMenu ? 0.125 : 0,
                     duration: const Duration(milliseconds: 200),
                     child: Icon(
                       Icons.add_circle_outline_rounded,
-                      color: _showAttachMenu ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                      color: _showAttachMenu
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurface.withValues(alpha: 0.4),
                       size: 22,
                     ),
                   ),
@@ -675,9 +787,16 @@ class _ChatScreenState extends State<ChatScreen> {
                     minLines: 1,
                     decoration: InputDecoration(
                       hintText: 'Message or / for commands',
-                      hintStyle: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: 0.3)),
+                      hintStyle: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.3,
+                        ),
+                      ),
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 10,
+                      ),
                       isDense: true,
                     ),
                   ),
@@ -689,8 +808,15 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: Container(
                       width: 36,
                       height: 36,
-                      decoration: BoxDecoration(color: theme.colorScheme.primary, shape: BoxShape.circle),
-                      child: Icon(Icons.arrow_upward_rounded, size: 20, color: theme.colorScheme.onPrimary),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.arrow_upward_rounded,
+                        size: 20,
+                        color: theme.colorScheme.onPrimary,
+                      ),
                     ),
                   ),
                 ),
@@ -714,10 +840,14 @@ class _ChatScreenState extends State<ChatScreen> {
     final bool isAssistant = message.authorId == _ivyUser.id;
     final Map<String, dynamic> meta = message.metadata ?? <String, dynamic>{};
     final String summary = (meta['summary'] as String? ?? '').trim();
-    final List<dynamic> rawTools = meta['toolCalls'] as List<dynamic>? ?? const <dynamic>[];
-    final List<dynamic> rawAttachments = meta['attachments'] as List<dynamic>? ?? const <dynamic>[];
+    final List<dynamic> rawTools =
+        meta['toolCalls'] as List<dynamic>? ?? const <dynamic>[];
+    final List<dynamic> rawAttachments =
+        meta['attachments'] as List<dynamic>? ?? const <dynamic>[];
     final bool isStreaming = meta['isStreaming'] as bool? ?? false;
-    final String roleLabel = isSentByMe ? 'You' : (isAssistant ? 'Ivy' : 'OpenClaw');
+    final String roleLabel = isSentByMe
+        ? 'You'
+        : (isAssistant ? 'Ivy' : 'OpenClaw');
     final IconData roleIcon = isSentByMe
         ? Icons.person_rounded
         : (isAssistant ? Icons.auto_awesome_rounded : Icons.hub_rounded);
@@ -726,7 +856,9 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Align(
         alignment: isSentByMe ? Alignment.centerRight : Alignment.centerLeft,
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.82),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.82,
+          ),
           child: Container(
             margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 2),
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
@@ -741,7 +873,11 @@ class _ChatScreenState extends State<ChatScreen> {
                 bottomRight: Radius.circular(isSentByMe ? 4 : 20),
               ),
               boxShadow: <BoxShadow>[
-                BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 3)),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
               ],
             ),
             child: Column(
@@ -751,12 +887,23 @@ class _ChatScreenState extends State<ChatScreen> {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    Icon(roleIcon, size: 13, color: isSentByMe ? theme.colorScheme.onPrimary.withValues(alpha: 0.7) : theme.colorScheme.primary),
+                    Icon(
+                      roleIcon,
+                      size: 13,
+                      color: isSentByMe
+                          ? theme.colorScheme.onPrimary.withValues(alpha: 0.7)
+                          : theme.colorScheme.primary,
+                    ),
                     const SizedBox(width: 4),
-                    Text(roleLabel, style: theme.textTheme.labelSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: isSentByMe ? theme.colorScheme.onPrimary.withValues(alpha: 0.7) : theme.colorScheme.primary,
-                    )),
+                    Text(
+                      roleLabel,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: isSentByMe
+                            ? theme.colorScheme.onPrimary.withValues(alpha: 0.7)
+                            : theme.colorScheme.primary,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -767,11 +914,20 @@ class _ChatScreenState extends State<ChatScreen> {
                 if (isStreaming && message.text.isEmpty)
                   const _TypingDots()
                 else if (isSentByMe)
-                  Text(message.text, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onPrimary, height: 1.4))
+                  Text(
+                    message.text,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onPrimary,
+                      height: 1.4,
+                    ),
+                  )
                 else if (isStreaming)
                   _StreamingText(text: message.text)
                 else
-                  GptMarkdown(message.text, style: theme.textTheme.bodyMedium?.copyWith(height: 1.45)),
+                  GptMarkdown(
+                    message.text,
+                    style: theme.textTheme.bodyMedium?.copyWith(height: 1.45),
+                  ),
                 // Image attachments
                 for (final dynamic att in rawAttachments)
                   if (att is Map<String, dynamic> &&
@@ -785,7 +941,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   const SizedBox(height: 8),
                   _ToolCallIcon(
                     count: rawTools.whereType<Map<String, dynamic>>().length,
-                    toolCalls: rawTools.whereType<Map<String, dynamic>>().toList(),
+                    toolCalls: rawTools
+                        .whereType<Map<String, dynamic>>()
+                        .toList(),
                   ),
                 ],
               ],
@@ -809,18 +967,30 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.07),
+            color: Theme.of(
+              context,
+            ).colorScheme.primary.withValues(alpha: 0.07),
             borderRadius: BorderRadius.circular(999),
           ),
-          child: Text(message.text, textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
+          child: Text(
+            message.text,
+            textAlign: TextAlign.center,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
         ),
       ),
     );
   }
 
   Widget _buildEmptyState(BuildContext context) {
-    return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('No messages yet.')));
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Text('No messages yet.'),
+      ),
+    );
   }
 }
 
@@ -888,7 +1058,8 @@ class _TypingDotsState extends State<_TypingDots>
             animation: _ctrl,
             builder: (_, __) {
               final double phase = ((_ctrl.value * 3) - i).clamp(0.0, 1.0);
-              final double opacity = 0.3 + 0.7 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2);
+              final double opacity =
+                  0.3 + 0.7 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2);
               return Container(
                 margin: const EdgeInsets.symmetric(horizontal: 2),
                 width: 7,
@@ -923,7 +1094,10 @@ class _StreamingText extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────
 const chat_core.User _currentUser = chat_core.User(id: 'operator', name: 'You');
 const chat_core.User _ivyUser = chat_core.User(id: 'ivy', name: 'Ivy');
-const chat_core.User _systemUser = chat_core.User(id: 'system', name: 'OpenClaw');
+const chat_core.User _systemUser = chat_core.User(
+  id: 'system',
+  name: 'OpenClaw',
+);
 
 // ─────────────────────────────────────────────────────────────────────
 // Header
@@ -951,19 +1125,45 @@ class _ChatHeader extends StatelessWidget {
         children: <Widget>[
           Expanded(
             child: sessions.isNotEmpty
-                ? _SessionPicker(sessions: sessions, selectedKey: selectedSessionKey, onChanged: onSessionChanged, unreadKeys: unreadKeys)
-                : Text('Chat', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                ? _SessionPicker(
+                    sessions: sessions,
+                    selectedKey: selectedSessionKey,
+                    onChanged: onSessionChanged,
+                    unreadKeys: unreadKeys,
+                  )
+                : Text(
+                    'Chat',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
           ),
           if (isSending)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(color: theme.colorScheme.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5, color: theme.colorScheme.primary)),
+                  SizedBox(
+                    width: 10,
+                    height: 10,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
                   const SizedBox(width: 6),
-                  Text('Working…', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.primary, fontWeight: FontWeight.w700)),
+                  Text(
+                    'Working…',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -990,71 +1190,39 @@ class _SessionPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (sessions.isEmpty) {
+      return const SizedBox.shrink();
+    }
     final ThemeData theme = Theme.of(context);
     final app_models.SessionInfo selected = sessions.firstWhere(
       (app_models.SessionInfo s) => s.key == selectedKey,
       orElse: () => sessions.first,
     );
-    final bool anyUnread = sessions.any((app_models.SessionInfo s) =>
-        s.key != selectedKey && unreadKeys.contains(s.key));
-    return PopupMenuButton<String>(
-      onSelected: onChanged,
-      offset: const Offset(0, 40),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      elevation: 3,
-      itemBuilder: (_) => sessions.map((app_models.SessionInfo s) {
-        final bool hasUnread = s.key != selectedKey && unreadKeys.contains(s.key);
-        return PopupMenuItem<String>(
-          value: s.key,
-          child: Row(
-            children: <Widget>[
-              Icon(
-                Icons.chat_bubble_outline_rounded,
-                size: 14,
-                color: s.key == selectedKey
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurface.withValues(alpha: 0.4),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  s.title,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: s.key == selectedKey ? FontWeight.w700 : FontWeight.w400,
-                    color: s.key == selectedKey ? theme.colorScheme.primary : null,
-                  ),
-                ),
-              ),
-              if (hasUnread)
-                Container(
-                  width: 8,
-                  height: 8,
-                  margin: const EdgeInsets.only(left: 6),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary,
-                    shape: BoxShape.circle,
-                  ),
-                )
-              else if (s.key == selectedKey)
-                Icon(Icons.check_rounded, size: 14, color: theme.colorScheme.primary),
-            ],
-          ),
-        );
-      }).toList(),
+    final bool anyUnread = sessions.any(
+      (app_models.SessionInfo s) =>
+          s.key != selectedKey && unreadKeys.contains(s.key),
+    );
+    return GestureDetector(
+      onTap: () => _openSessionSheet(context, selected.key),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.15)),
+          border: Border.all(
+            color: theme.colorScheme.primary.withValues(alpha: 0.15),
+          ),
         ),
         child: Row(
           children: <Widget>[
             Stack(
               clipBehavior: Clip.none,
               children: <Widget>[
-                Icon(Icons.chat_bubble_outline_rounded, size: 14, color: theme.colorScheme.primary),
+                Icon(
+                  Icons.chat_bubble_outline_rounded,
+                  size: 14,
+                  color: theme.colorScheme.primary,
+                ),
                 if (anyUnread)
                   Positioned(
                     top: -3,
@@ -1065,7 +1233,10 @@ class _SessionPicker extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: theme.colorScheme.primary,
                         shape: BoxShape.circle,
-                        border: Border.all(color: theme.colorScheme.surface, width: 1),
+                        border: Border.all(
+                          color: theme.colorScheme.surface,
+                          width: 1,
+                        ),
                       ),
                     ),
                   ),
@@ -1073,15 +1244,423 @@ class _SessionPicker extends StatelessWidget {
             ),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(
-                selected.title,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    selected.title,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    unreadKeys.contains(selected.key)
+                        ? 'Unread activity'
+                        : selected.updatedAgo,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.55,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            Icon(Icons.expand_more_rounded, size: 18, color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
+            Icon(
+              Icons.expand_more_rounded,
+              size: 18,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _openSessionSheet(
+    BuildContext context,
+    String currentKey,
+  ) async {
+    final String? next = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _SessionBrowserSheet(
+        sessions: sessions,
+        selectedKey: currentKey,
+        unreadKeys: unreadKeys,
+      ),
+    );
+    if (next != null && next != currentKey) {
+      onChanged(next);
+    }
+  }
+}
+
+class _SessionBrowserSheet extends StatefulWidget {
+  const _SessionBrowserSheet({
+    required this.sessions,
+    required this.selectedKey,
+    required this.unreadKeys,
+  });
+
+  final List<app_models.SessionInfo> sessions;
+  final String selectedKey;
+  final Set<String> unreadKeys;
+
+  @override
+  State<_SessionBrowserSheet> createState() => _SessionBrowserSheetState();
+}
+
+class _SessionBrowserSheetState extends State<_SessionBrowserSheet> {
+  late final TextEditingController _searchController;
+  DashboardSessionFilter _filter = DashboardSessionFilter.all;
+  DashboardSessionSort _sort = DashboardSessionSort.recent;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final List<app_models.SessionInfo> visible = buildVisibleDashboardSessions(
+      source: widget.sessions,
+      unreadKeys: widget.unreadKeys,
+      filter: _filter,
+      sort: _sort,
+      query: _searchController.text,
+    );
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.78,
+      minChildSize: 0.45,
+      maxChildSize: 0.95,
+      builder: (BuildContext context, ScrollController scrollController) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Sessions',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Search and switch sessions without leaving chat.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  hintText: 'Search by title, key, or state',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  ChoiceChip(
+                    label: const Text('All'),
+                    selected: _filter == DashboardSessionFilter.all,
+                    onSelected: (_) =>
+                        setState(() => _filter = DashboardSessionFilter.all),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Unread'),
+                    selected: _filter == DashboardSessionFilter.unread,
+                    onSelected: (_) =>
+                        setState(() => _filter = DashboardSessionFilter.unread),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Active'),
+                    selected: _filter == DashboardSessionFilter.active,
+                    onSelected: (_) =>
+                        setState(() => _filter = DashboardSessionFilter.active),
+                  ),
+                  SegmentedButton<DashboardSessionSort>(
+                    segments: const <ButtonSegment<DashboardSessionSort>>[
+                      ButtonSegment<DashboardSessionSort>(
+                        value: DashboardSessionSort.recent,
+                        icon: Icon(Icons.schedule_rounded),
+                        label: Text('Recent'),
+                      ),
+                      ButtonSegment<DashboardSessionSort>(
+                        value: DashboardSessionSort.title,
+                        icon: Icon(Icons.sort_by_alpha_rounded),
+                        label: Text('Title'),
+                      ),
+                    ],
+                    selected: <DashboardSessionSort>{_sort},
+                    onSelectionChanged: (Set<DashboardSessionSort> value) {
+                      setState(() => _sort = value.first);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Text(
+                '${visible.length}/${widget.sessions.length} visible',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                child: visible.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No matching sessions.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.6,
+                            ),
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        controller: scrollController,
+                        itemCount: visible.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (BuildContext context, int index) {
+                          final app_models.SessionInfo session = visible[index];
+                          final bool isSelected =
+                              session.key == widget.selectedKey;
+                          final bool isUnread =
+                              widget.unreadKeys.contains(session.key) &&
+                              !isSelected;
+                          final bool isActive = looksLikeActiveSession(
+                            session,
+                            widget.unreadKeys,
+                          );
+                          return _SessionBrowserTile(
+                            session: session,
+                            isSelected: isSelected,
+                            isUnread: isUnread,
+                            isActive: isActive,
+                            onTap: () => Navigator.of(context).pop(session.key),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SessionBrowserTile extends StatelessWidget {
+  const _SessionBrowserTile({
+    required this.session,
+    required this.isSelected,
+    required this.isUnread,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  final app_models.SessionInfo session;
+  final bool isSelected;
+  final bool isUnread;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color accent = isSelected
+        ? theme.colorScheme.primary
+        : isUnread
+        ? Colors.orangeAccent
+        : theme.colorScheme.outline;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: accent.withValues(alpha: 0.28)),
+            color: isSelected
+                ? theme.colorScheme.primary.withValues(alpha: 0.08)
+                : theme.colorScheme.surface,
+          ),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(Icons.forum_outlined, color: accent),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            session.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        if (isUnread)
+                          Container(
+                            width: 9,
+                            height: 9,
+                            margin: const EdgeInsets.only(left: 8),
+                            decoration: const BoxDecoration(
+                              color: Colors.orangeAccent,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      session.key,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.65,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: <Widget>[
+                        _SessionStatusPill(
+                          icon: Icons.schedule_rounded,
+                          label: session.updatedAgo,
+                          accent: accent,
+                        ),
+                        _SessionStatusPill(
+                          icon: Icons.label_outline_rounded,
+                          label: session.state,
+                          accent: accent,
+                        ),
+                        if (isActive)
+                          _SessionStatusPill(
+                            icon: Icons.bolt_rounded,
+                            label: 'Active',
+                            accent: accent,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                isSelected
+                    ? Icons.check_circle_rounded
+                    : Icons.arrow_forward_ios_rounded,
+                size: isSelected ? 20 : 16,
+                color: accent,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SessionStatusPill extends StatelessWidget {
+  const _SessionStatusPill({
+    required this.icon,
+    required this.label,
+    required this.accent,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icon, size: 14, color: accent),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1091,7 +1670,12 @@ class _SessionPicker extends StatelessWidget {
 // Attachment option
 // ─────────────────────────────────────────────────────────────────────
 class _AttachOption extends StatelessWidget {
-  const _AttachOption({required this.icon, required this.label, required this.color, required this.onTap});
+  const _AttachOption({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
   final IconData icon;
   final String label;
   final Color color;
@@ -1108,12 +1692,21 @@ class _AttachOption extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Container(
-              width: 44, height: 44,
-              decoration: BoxDecoration(color: color.withValues(alpha: 0.12), shape: BoxShape.circle),
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
               child: Icon(icon, color: color, size: 22),
             ),
             const SizedBox(height: 4),
-            Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600)),
+            Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
           ],
         ),
       ),
@@ -1134,16 +1727,29 @@ class _SummaryNote extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: theme.brightness == Brightness.dark ? const Color(0xFF191D26) : const Color(0xFFF5F0EB),
+        color: theme.brightness == Brightness.dark
+            ? const Color(0xFF191D26)
+            : const Color(0xFFF5F0EB),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: theme.dividerColor),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Icon(Icons.summarize_rounded, size: 14, color: theme.colorScheme.primary),
+          Icon(
+            Icons.summarize_rounded,
+            size: 14,
+            color: theme.colorScheme.primary,
+          ),
           const SizedBox(width: 6),
-          Expanded(child: Text(summary, style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600))),
+          Expanded(
+            child: Text(
+              summary,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1174,7 +1780,13 @@ class _ToolCallIcon extends StatelessWidget {
           ),
           child: Stack(
             children: <Widget>[
-              Center(child: Icon(Icons.account_tree_rounded, size: 17, color: theme.colorScheme.primary)),
+              Center(
+                child: Icon(
+                  Icons.account_tree_rounded,
+                  size: 17,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
               if (count > 1)
                 Positioned(
                   right: 0,
@@ -1182,9 +1794,19 @@ class _ToolCallIcon extends StatelessWidget {
                   child: Container(
                     width: 14,
                     height: 14,
-                    decoration: BoxDecoration(color: theme.colorScheme.primary, shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary,
+                      shape: BoxShape.circle,
+                    ),
                     child: Center(
-                      child: Text('$count', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: theme.colorScheme.onPrimary)),
+                      child: Text(
+                        '$count',
+                        style: TextStyle(
+                          fontSize: 8,
+                          fontWeight: FontWeight.w800,
+                          color: theme.colorScheme.onPrimary,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -1200,7 +1822,9 @@ class _ToolCallIcon extends StatelessWidget {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (_) => DraggableScrollableSheet(
         initialChildSize: 0.45,
         minChildSize: 0.25,
@@ -1211,9 +1835,23 @@ class _ToolCallIcon extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Center(child: Container(width: 36, height: 4, decoration: BoxDecoration(color: theme.colorScheme.onSurface.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(2)))),
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
               const SizedBox(height: 14),
-              Text('Tool Calls', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+              Text(
+                'Tool Calls',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
               const SizedBox(height: 12),
               Expanded(
                 child: ListView.builder(
@@ -1240,15 +1878,20 @@ class _ToolCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final String title = (raw['name'] as String? ?? raw['tool'] as String? ?? 'Tool call').trim();
+    final String title =
+        (raw['name'] as String? ?? raw['tool'] as String? ?? 'Tool call')
+            .trim();
     final String summary = (raw['summary'] as String? ?? '').trim();
-    final String output = (raw['output'] as String? ?? raw['result'] as String? ?? '').trim();
+    final String output =
+        (raw['output'] as String? ?? raw['result'] as String? ?? '').trim();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: theme.brightness == Brightness.dark ? const Color(0xFF14171F) : Colors.white,
+        color: theme.brightness == Brightness.dark
+            ? const Color(0xFF14171F)
+            : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: theme.dividerColor),
       ),
@@ -1258,17 +1901,37 @@ class _ToolCard extends StatelessWidget {
           Row(
             children: <Widget>[
               Container(
-                width: 28, height: 28,
-                decoration: BoxDecoration(color: theme.colorScheme.primary.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
-                child: Icon(Icons.terminal_rounded, size: 15, color: theme.colorScheme.primary),
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.terminal_rounded,
+                  size: 15,
+                  color: theme.colorScheme.primary,
+                ),
               ),
               const SizedBox(width: 8),
-              Expanded(child: Text(title, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800))),
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
             ],
           ),
           if (summary.isNotEmpty) ...<Widget>[
             const SizedBox(height: 6),
-            Text(summary, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
+            Text(
+              summary,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
           ],
           if (output.isNotEmpty) ...<Widget>[
             const SizedBox(height: 10),
@@ -1276,10 +1939,18 @@ class _ToolCard extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: theme.brightness == Brightness.dark ? const Color(0xFF0A0D14) : const Color(0xFFF5F5F5),
+                color: theme.brightness == Brightness.dark
+                    ? const Color(0xFF0A0D14)
+                    : const Color(0xFFF5F5F5),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: SelectableText(output, style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace', fontSize: 11)),
+              child: SelectableText(
+                output,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                ),
+              ),
             ),
           ],
         ],
