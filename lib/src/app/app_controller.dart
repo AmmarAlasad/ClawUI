@@ -33,6 +33,7 @@ class AppController extends ChangeNotifier {
   ChatMessage? _streamingMessage;
   bool _loadingDevices = false;
   bool _loadingCronJobs = false;
+  bool _loadingCronRuns = false;
   bool _loadingSkills = false;
   int _tabIndex = 0;
   ThemeMode _themeMode = ThemeMode.system;
@@ -42,6 +43,8 @@ class AppController extends ChangeNotifier {
   DateTime? _lastUpdatedAt;
   List<DeviceInfo> _devices = const <DeviceInfo>[];
   List<CronJob> _cronJobs = const <CronJob>[];
+  List<CronRun> _cronRuns = const <CronRun>[];
+  String? _selectedCronJobId;
   List<SkillInfo> _skills = const <SkillInfo>[];
   String _activeSessionKey = 'main';
   bool _approvalRequired = false;
@@ -74,14 +77,19 @@ class AppController extends ChangeNotifier {
   DateTime? get lastUpdatedAt => _lastUpdatedAt;
   List<DeviceInfo> get devices => _devices;
   List<CronJob> get cronJobs => _cronJobs;
+  List<CronRun> get cronRuns => _cronRuns;
+  bool get loadingCronRuns => _loadingCronRuns;
+  String? get selectedCronJobId => _selectedCronJobId;
   List<SkillInfo> get skills => _skills;
   String get activeSessionKey => _activeSessionKey;
   bool get approvalRequired => _approvalRequired;
   String? get approvalMessage => _approvalMessage;
   List<ChatMessage> get messages => _messages;
+
   /// Non-null while an assistant reply is being streamed token-by-token.
   ChatMessage? get streamingMessage => _streamingMessage;
   String? get error => _error;
+
   /// Sessions that received a new message while not the active session.
   Set<String> get sessionsWithUnread => _sessionsWithUnread;
 
@@ -136,6 +144,8 @@ class AppController extends ChangeNotifier {
     _lastUpdatedAt = null;
     _devices = const <DeviceInfo>[];
     _cronJobs = const <CronJob>[];
+    _cronRuns = const <CronRun>[];
+    _selectedCronJobId = null;
     _skills = const <SkillInfo>[];
     _activeSessionKey = 'main';
     _streamingMessage = null;
@@ -178,6 +188,10 @@ class AppController extends ChangeNotifier {
       _lastUpdatedAt = DateTime.now();
       _devices = snapshot.devices;
       _cronJobs = snapshot.cronJobs;
+      _selectedCronJobId = _resolveSelectedCronJobId(
+        current: _selectedCronJobId,
+        jobs: _cronJobs,
+      );
       _skills = snapshot.skills;
       _approvalRequired = snapshot.approvalRequired;
       _approvalMessage = snapshot.approvalMessage;
@@ -253,9 +267,14 @@ class AppController extends ChangeNotifier {
     await refresh();
   }
 
-  Future<void> sendMessage(String text, {List<ChatAttachment> attachments = const <ChatAttachment>[]}) async {
+  Future<void> sendMessage(
+    String text, {
+    List<ChatAttachment> attachments = const <ChatAttachment>[],
+  }) async {
     final ConnectionProfile? profile = _profile;
-    if (profile == null || (text.trim().isEmpty && attachments.isEmpty) || _sendingMessage) {
+    if (profile == null ||
+        (text.trim().isEmpty && attachments.isEmpty) ||
+        _sendingMessage) {
       return;
     }
 
@@ -480,12 +499,56 @@ class AppController extends ChangeNotifier {
     _loadingCronJobs = true;
     try {
       _cronJobs = await _repository.fetchCronJobs(profile);
+      _selectedCronJobId = _resolveSelectedCronJobId(
+        current: _selectedCronJobId,
+        jobs: _cronJobs,
+      );
+      await _loadCronRunsForSelectedJob(notify: false);
       _syncDashboardCounts();
       notifyListeners();
     } catch (_) {
       // Keep the last visible cron state.
     } finally {
       _loadingCronJobs = false;
+    }
+  }
+
+  Future<void> selectCronJob(String? jobId) async {
+    final String? normalized = jobId?.trim();
+    if ((normalized == null || normalized.isEmpty) &&
+        _selectedCronJobId == null) {
+      return;
+    }
+    if (normalized == _selectedCronJobId) {
+      return;
+    }
+    _selectedCronJobId = (normalized == null || normalized.isEmpty)
+        ? null
+        : normalized;
+    _cronRuns = const <CronRun>[];
+    notifyListeners();
+    await _loadCronRunsForSelectedJob();
+  }
+
+  Future<void> _loadCronRunsForSelectedJob({bool notify = true}) async {
+    final ConnectionProfile? profile = _profile;
+    final String? jobId = _selectedCronJobId;
+    if (profile == null || jobId == null || jobId.isEmpty || _loadingCronRuns) {
+      return;
+    }
+    _loadingCronRuns = true;
+    if (notify) {
+      notifyListeners();
+    }
+    try {
+      _cronRuns = await _repository.fetchCronRuns(profile, jobId: jobId);
+    } catch (_) {
+      _cronRuns = const <CronRun>[];
+    } finally {
+      _loadingCronRuns = false;
+      if (notify) {
+        notifyListeners();
+      }
     }
   }
 
@@ -552,5 +615,18 @@ class AppController extends ChangeNotifier {
         normalized.contains('not paired') ||
         normalized.contains('device signature invalid') ||
         normalized.contains('approve this device');
+  }
+
+  String? _resolveSelectedCronJobId({
+    required String? current,
+    required List<CronJob> jobs,
+  }) {
+    if (jobs.isEmpty) {
+      return null;
+    }
+    if (current != null && jobs.any((CronJob job) => job.id == current)) {
+      return current;
+    }
+    return jobs.first.id;
   }
 }

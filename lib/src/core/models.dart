@@ -10,6 +10,8 @@ enum MessageRole { assistant, user, system }
 
 enum JobHealth { healthy, warning, stalled }
 
+enum CronRunStatus { ok, error, skipped, unknown }
+
 class ConnectionProfile {
   const ConnectionProfile({
     required this.targetKind,
@@ -393,6 +395,7 @@ class ChatMessage {
   final String? summary;
   final List<ChatToolCall> toolCalls;
   final List<ChatAttachment> attachments;
+
   /// True while the assistant reply is being streamed token-by-token.
   final bool isStreaming;
 
@@ -438,11 +441,7 @@ class ChatAttachment {
 }
 
 class ChatToolCall {
-  const ChatToolCall({
-    required this.name,
-    this.summary,
-    this.output,
-  });
+  const ChatToolCall({required this.name, this.summary, this.output});
 
   final String name;
   final String? summary;
@@ -485,6 +484,7 @@ class CronSummary {
 
 class CronJob {
   const CronJob({
+    required this.id,
     required this.name,
     required this.schedule,
     required this.nextRun,
@@ -492,11 +492,30 @@ class CronJob {
     required this.health,
   });
 
+  final String id;
   final String name;
   final String schedule;
   final String nextRun;
   final String lastRun;
   final JobHealth health;
+}
+
+class CronRun {
+  const CronRun({
+    required this.id,
+    required this.startedAtLabel,
+    required this.status,
+    this.durationLabel,
+    this.deliveryLabel,
+    this.summary,
+  });
+
+  final String id;
+  final String startedAtLabel;
+  final CronRunStatus status;
+  final String? durationLabel;
+  final String? deliveryLabel;
+  final String? summary;
 }
 
 class SkillInfo {
@@ -524,7 +543,8 @@ class SkillInfo {
     return value;
   }
 
-  bool get canConfigureInput => inputPath != null && inputPath!.trim().isNotEmpty;
+  bool get canConfigureInput =>
+      inputPath != null && inputPath!.trim().isNotEmpty;
 }
 
 Uri _buildUri({

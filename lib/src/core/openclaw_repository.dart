@@ -13,6 +13,10 @@ abstract class OpenClawRepository {
   Future<OperatorSnapshot> fetchOverview(ConnectionProfile profile);
   Future<List<DeviceInfo>> fetchDevices(ConnectionProfile profile);
   Future<List<CronJob>> fetchCronJobs(ConnectionProfile profile);
+  Future<List<CronRun>> fetchCronRuns(
+    ConnectionProfile profile, {
+    required String jobId,
+  });
   Future<List<SkillInfo>> fetchSkills(ConnectionProfile profile);
   Future<ConnectionCheckResult> testConnection(ConnectionProfile profile);
   Future<void> approveDevice(ConnectionProfile profile, String requestId);
@@ -98,6 +102,17 @@ class OpenClawRepositoryRouter implements OpenClawRepository {
       return _fallback.fetchCronJobs(profile);
     }
     return _network!.fetchCronJobs(profile);
+  }
+
+  @override
+  Future<List<CronRun>> fetchCronRuns(
+    ConnectionProfile profile, {
+    required String jobId,
+  }) async {
+    if (_shouldUseFallback(profile)) {
+      return _fallback.fetchCronRuns(profile, jobId: jobId);
+    }
+    return _network!.fetchCronRuns(profile, jobId: jobId);
   }
 
   @override
@@ -220,6 +235,39 @@ class DemoOpenClawRepository implements OpenClawRepository {
   }
 
   @override
+  Future<List<CronRun>> fetchCronRuns(
+    ConnectionProfile profile, {
+    required String jobId,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    return <CronRun>[
+      CronRun(
+        id: '${jobId}-run-1',
+        startedAtLabel: '4m ago',
+        status: CronRunStatus.ok,
+        durationLabel: '2s',
+        deliveryLabel: 'Announced',
+        summary: 'Delivered the scheduled operator summary.',
+      ),
+      CronRun(
+        id: '${jobId}-run-2',
+        startedAtLabel: '1h ago',
+        status: CronRunStatus.ok,
+        durationLabel: '1s',
+        deliveryLabel: 'Announced',
+      ),
+      CronRun(
+        id: '${jobId}-run-3',
+        startedAtLabel: '2h ago',
+        status: CronRunStatus.skipped,
+        durationLabel: '0s',
+        deliveryLabel: 'Not requested',
+        summary: 'Skipped because another run was already active.',
+      ),
+    ];
+  }
+
+  @override
   Future<List<DeviceInfo>> fetchDevices(ConnectionProfile profile) async {
     return (await fetchOverview(profile)).devices;
   }
@@ -256,6 +304,7 @@ class DemoOpenClawRepository implements OpenClawRepository {
     ];
     const List<CronJob> cronJobs = <CronJob>[
       CronJob(
+        id: 'inventory-sync',
         name: 'inventory-sync',
         schedule: '*/15 * * * *',
         nextRun: '12m',
@@ -263,6 +312,7 @@ class DemoOpenClawRepository implements OpenClawRepository {
         health: JobHealth.healthy,
       ),
       CronJob(
+        id: 'tailnet-prune',
         name: 'tailnet-prune',
         schedule: '0 */6 * * *',
         nextRun: '2h',
@@ -270,6 +320,7 @@ class DemoOpenClawRepository implements OpenClawRepository {
         health: JobHealth.warning,
       ),
       CronJob(
+        id: 'rebuild-embeddings',
         name: 'rebuild-embeddings',
         schedule: '30 2 * * *',
         nextRun: 'Tonight 02:30',
@@ -472,7 +523,10 @@ class NetworkOpenClawRepository implements OpenClawRepository {
         helloSnapshot?.serverVersion ??
         helloSnapshot?.healthVersion ??
         'OpenClaw Gateway';
-    final _GatewayData gatewayData = await _loadGatewayData(profile, helloSnapshot);
+    final _GatewayData gatewayData = await _loadGatewayData(
+      profile,
+      helloSnapshot,
+    );
 
     return OperatorSnapshot(
       connectionCheck: connection,
@@ -621,6 +675,28 @@ class NetworkOpenClawRepository implements OpenClawRepository {
   }
 
   @override
+  Future<List<CronRun>> fetchCronRuns(
+    ConnectionProfile profile, {
+    required String jobId,
+  }) async {
+    try {
+      final Map<String, dynamic> payload = await _callRpc(
+        profile,
+        'cron.runs',
+        <String, dynamic>{'jobId': jobId, 'limit': 20},
+      );
+      return _parseCronRuns(payload);
+    } on OpenClawApiException {
+      final Map<String, dynamic> payload = await _client.invokeTool(
+        profile,
+        'cron',
+        <String, dynamic>{'action': 'runs', 'jobId': jobId},
+      );
+      return _parseCronRuns(payload);
+    }
+  }
+
+  @override
   Future<List<SkillInfo>> fetchSkills(ConnectionProfile profile) async {
     try {
       final Map<String, dynamic> skillsPayload = await _callRpc(
@@ -638,9 +714,8 @@ class NetworkOpenClawRepository implements OpenClawRepository {
   }
 
   @override
-  Stream<Map<String, dynamic>> watchGatewayEvents(
-    ConnectionProfile profile,
-  ) => _gatewayEventStream(profile);
+  Stream<Map<String, dynamic>> watchGatewayEvents(ConnectionProfile profile) =>
+      _gatewayEventStream(profile);
 
   /// Auto-reconnecting stream of raw gateway event frames.
   Stream<Map<String, dynamic>> _gatewayEventStream(
@@ -650,14 +725,13 @@ class NetworkOpenClawRepository implements OpenClawRepository {
     while (true) {
       try {
         final String key = _scopeKey(profile.websocketUri);
-        final GatewayLiveSession session =
-            await GatewaySessionPool.instance
-                .acquire(
-                  key,
-                  profile.websocketUri,
-                  (GatewayWsChallenge c) => _buildConnectPayload(profile, c),
-                )
-                .timeout(const Duration(seconds: 15));
+        final GatewayLiveSession session = await GatewaySessionPool.instance
+            .acquire(
+              key,
+              profile.websocketUri,
+              (GatewayWsChallenge c) => _buildConnectPayload(profile, c),
+            )
+            .timeout(const Duration(seconds: 15));
         await for (final Map<String, dynamic> event in session.events) {
           yield event;
         }
@@ -709,8 +783,9 @@ class NetworkOpenClawRepository implements OpenClawRepository {
   }) async {
     // Record how many assistant messages exist BEFORE we send, so we can
     // detect only the NEW reply rather than matching an old one.
-    final int existingAssistantCount =
-        conversation.where((ChatMessage m) => m.role == MessageRole.assistant).length;
+    final int existingAssistantCount = conversation
+        .where((ChatMessage m) => m.role == MessageRole.assistant)
+        .length;
 
     // ── Streaming path (IO platforms with persistent session) ──────────────
     // CRITICAL: subscribe to events BEFORE sending chat.send, otherwise early
@@ -718,39 +793,46 @@ class NetworkOpenClawRepository implements OpenClawRepository {
     if (!kIsWeb && onStreamChunk != null) {
       try {
         final String key = _scopeKey(profile.websocketUri);
-        final GatewayLiveSession session = await GatewaySessionPool.instance.acquire(
-          key,
-          profile.websocketUri,
-          (GatewayWsChallenge challenge) => _buildConnectPayload(profile, challenge),
-        ).timeout(const Duration(seconds: 15));
+        final GatewayLiveSession session = await GatewaySessionPool.instance
+            .acquire(
+              key,
+              profile.websocketUri,
+              (GatewayWsChallenge challenge) =>
+                  _buildConnectPayload(profile, challenge),
+            )
+            .timeout(const Duration(seconds: 15));
 
         final StringBuffer buf = StringBuffer();
         bool streamDone = false;
-        final StreamSubscription<Map<String, dynamic>> sub =
-            session.events.listen((Map<String, dynamic> event) {
-          final String eventName = event['event'] as String? ?? '';
-          if (eventName == 'chat.stream' ||
-              eventName == 'chat.reply' ||
-              eventName == 'chat.message') {
-            final Map<String, dynamic> payload =
-                event['payload'] as Map<String, dynamic>? ?? <String, dynamic>{};
-            final String role = payload['role'] as String? ?? '';
-            if (role == 'assistant' || role.isEmpty) {
-              final String delta = payload['delta'] as String? ?? '';
-              final String full =
-                  _extractTextContent(payload['text'] ?? payload['content']) ?? '';
-              if (delta.isNotEmpty) {
-                buf.write(delta);
-                onStreamChunk(buf.toString());
-              } else if (full.isNotEmpty) {
-                onStreamChunk(full);
+        final StreamSubscription<Map<String, dynamic>> sub = session.events
+            .listen((Map<String, dynamic> event) {
+              final String eventName = event['event'] as String? ?? '';
+              if (eventName == 'chat.stream' ||
+                  eventName == 'chat.reply' ||
+                  eventName == 'chat.message') {
+                final Map<String, dynamic> payload =
+                    event['payload'] as Map<String, dynamic>? ??
+                    <String, dynamic>{};
+                final String role = payload['role'] as String? ?? '';
+                if (role == 'assistant' || role.isEmpty) {
+                  final String delta = payload['delta'] as String? ?? '';
+                  final String full =
+                      _extractTextContent(
+                        payload['text'] ?? payload['content'],
+                      ) ??
+                      '';
+                  if (delta.isNotEmpty) {
+                    buf.write(delta);
+                    onStreamChunk(buf.toString());
+                  } else if (full.isNotEmpty) {
+                    onStreamChunk(full);
+                  }
+                  if (payload['done'] as bool? ?? false) {
+                    streamDone = true;
+                  }
+                }
               }
-              if (payload['done'] as bool? ?? false) {
-                streamDone = true;
-              }
-            }
-          }
-        });
+            });
 
         // Send AFTER subscribing so no events are missed.
         // Only include 'message' when non-empty — gateway rejects empty strings.
@@ -763,8 +845,8 @@ class NetworkOpenClawRepository implements OpenClawRepository {
                     .map((ChatAttachment a) => a.toJson())
                     .toList(),
               'deliver': false,
-              'idempotencyKey':
-                  DateTime.now().millisecondsSinceEpoch.toString(),
+              'idempotencyKey': DateTime.now().millisecondsSinceEpoch
+                  .toString(),
             })
             .timeout(const Duration(seconds: 30));
 
@@ -816,7 +898,9 @@ class NetworkOpenClawRepository implements OpenClawRepository {
         'sessionKey': sessionKey,
         if (message.isNotEmpty) 'message': message,
         if (attachments.isNotEmpty)
-          'attachment': attachments.map((ChatAttachment a) => a.toJson()).toList(),
+          'attachment': attachments
+              .map((ChatAttachment a) => a.toJson())
+              .toList(),
         'deliver': false,
         'idempotencyKey': DateTime.now().millisecondsSinceEpoch.toString(),
       });
@@ -855,7 +939,8 @@ class NetworkOpenClawRepository implements OpenClawRepository {
   }
 
   static String? _extractTextContent(dynamic content) {
-    if (content is String) return content.trim().isEmpty ? null : content.trim();
+    if (content is String)
+      return content.trim().isEmpty ? null : content.trim();
     if (content is List) {
       for (final dynamic item in content) {
         if (item is Map<String, dynamic>) {
@@ -896,6 +981,12 @@ class NetworkOpenClawRepository implements OpenClawRepository {
           .trim()
           .toLowerCase();
       return CronJob(
+        id:
+            (job['jobId'] as String? ??
+                    job['id'] as String? ??
+                    job['name'] as String? ??
+                    'cron-job')
+                .trim(),
         name: (job['name'] as String? ?? job['id'] as String? ?? 'cron-job')
             .trim(),
         schedule: _formatSchedule(schedule),
@@ -908,6 +999,44 @@ class NetworkOpenClawRepository implements OpenClawRepository {
           'failed' || 'error' => JobHealth.stalled,
           _ => JobHealth.warning,
         },
+      );
+    }).toList();
+  }
+
+  List<CronRun> _parseCronRuns(Map<String, dynamic> payload) {
+    final Map<String, dynamic> details = _unwrapGatewayResult(payload);
+    final List<dynamic> rawRuns = _readList(details['runs']);
+    return rawRuns.map((dynamic item) {
+      final Map<String, dynamic> run = item as Map<String, dynamic>;
+      final String statusRaw =
+          (run['status'] as String? ?? run['lastStatus'] as String? ?? '')
+              .trim()
+              .toLowerCase();
+      final Map<String, dynamic> delivery = _readMap(
+        run['delivery'] ?? run['deliveryStatus'],
+      );
+      final int? startedAt =
+          _readInt(run['startedAtMs']) ??
+          _readInt(run['ts']) ??
+          _readInt(run['createdAtMs']) ??
+          _readInt(run['runAtMs']);
+      final int? durationMs =
+          _readInt(run['durationMs']) ?? _readInt(run['elapsedMs']);
+      final String summaryRaw =
+          (run['summary'] as String? ?? run['message'] as String? ?? '').trim();
+      return CronRun(
+        id: (run['runId'] as String? ?? run['id'] as String? ?? '$startedAt')
+            .trim(),
+        startedAtLabel: _formatTimestamp(startedAt),
+        status: switch (statusRaw) {
+          'ok' || 'success' => CronRunStatus.ok,
+          'error' || 'failed' => CronRunStatus.error,
+          'skipped' => CronRunStatus.skipped,
+          _ => CronRunStatus.unknown,
+        },
+        durationLabel: _formatDuration(durationMs),
+        deliveryLabel: _resolveDeliveryLabel(delivery, run),
+        summary: summaryRaw.isEmpty ? null : summaryRaw,
       );
     }).toList();
   }
@@ -1086,22 +1215,23 @@ class NetworkOpenClawRepository implements OpenClawRepository {
   Future<_GatewayData?> _loadWsGatewayData(ConnectionProfile profile) async {
     try {
       // Fire all five requests concurrently over the same persistent session.
-      final List<Map<String, dynamic>> results =
-          await Future.wait(<Future<Map<String, dynamic>>>[
-        _callRpc(profile, 'sessions.list', <String, dynamic>{
-          'includeGlobal': true,
-          'includeUnknown': true,
-          'limit': 20,
-        }),
-        _callRpc(profile, 'device.pair.list', const <String, dynamic>{}),
-        _callRpcOrEmpty(profile, 'node.list', const <String, dynamic>{}),
-        _callRpc(profile, 'cron.list', <String, dynamic>{
-          'includeDisabled': true,
-          'limit': 100,
-          'offset': 0,
-        }),
-        _callRpcOrEmpty(profile, 'skills.status', const <String, dynamic>{}),
-      ]);
+      final List<Map<String, dynamic>> results = await Future.wait(
+        <Future<Map<String, dynamic>>>[
+          _callRpc(profile, 'sessions.list', <String, dynamic>{
+            'includeGlobal': true,
+            'includeUnknown': true,
+            'limit': 20,
+          }),
+          _callRpc(profile, 'device.pair.list', const <String, dynamic>{}),
+          _callRpcOrEmpty(profile, 'node.list', const <String, dynamic>{}),
+          _callRpc(profile, 'cron.list', <String, dynamic>{
+            'includeDisabled': true,
+            'limit': 100,
+            'offset': 0,
+          }),
+          _callRpcOrEmpty(profile, 'skills.status', const <String, dynamic>{}),
+        ],
+      );
 
       final Map<String, dynamic> sessionsPayload = results[0];
       final Map<String, dynamic> devicesPayload = results[1];
@@ -1158,7 +1288,6 @@ class NetworkOpenClawRepository implements OpenClawRepository {
       return null;
     }
   }
-
 
   Future<Map<String, dynamic>> _buildConnectPayload(
     ConnectionProfile profile,
@@ -1266,25 +1395,34 @@ class NetworkOpenClawRepository implements OpenClawRepository {
   ) async {
     final String key = _scopeKey(profile.websocketUri);
     try {
-      final GatewayLiveSession session = await GatewaySessionPool.instance.acquire(
-        key,
-        profile.websocketUri,
-        (GatewayWsChallenge challenge) => _buildConnectPayload(profile, challenge),
-      ).timeout(const Duration(seconds: 15));
+      final GatewayLiveSession session = await GatewaySessionPool.instance
+          .acquire(
+            key,
+            profile.websocketUri,
+            (GatewayWsChallenge challenge) =>
+                _buildConnectPayload(profile, challenge),
+          )
+          .timeout(const Duration(seconds: 15));
 
       GatewayWsResponse response = await session.rpc(method, params);
       if (!response.ok && _shouldRetryDeviceAuth(response)) {
         await _deviceAuthStore.clearDeviceToken(key);
         GatewaySessionPool.instance.invalidate(key);
-        final GatewayLiveSession retry = await GatewaySessionPool.instance.acquire(
-          key,
-          profile.websocketUri,
-          (GatewayWsChallenge challenge) => _buildConnectPayload(profile, challenge),
-        ).timeout(const Duration(seconds: 15));
+        final GatewayLiveSession retry = await GatewaySessionPool.instance
+            .acquire(
+              key,
+              profile.websocketUri,
+              (GatewayWsChallenge challenge) =>
+                  _buildConnectPayload(profile, challenge),
+            )
+            .timeout(const Duration(seconds: 15));
         response = await retry.rpc(method, params);
       }
       if (!response.ok) {
-        throw OpenClawApiException(response.errorMessage ?? 'Request failed.', 403);
+        throw OpenClawApiException(
+          response.errorMessage ?? 'Request failed.',
+          403,
+        );
       }
       await _saveDeviceToken(profile, response.payload);
       return response.payload;
@@ -1351,9 +1489,9 @@ class NetworkOpenClawRepository implements OpenClawRepository {
       GatewayDeviceToken(
         token: token.trim(),
         role: auth['role'] as String? ?? 'operator',
-        scopes: _readList(auth['scopes'])
-            .map((dynamic item) => item.toString())
-            .toList(),
+        scopes: _readList(
+          auth['scopes'],
+        ).map((dynamic item) => item.toString()).toList(),
       ),
     );
   }
@@ -1781,6 +1919,43 @@ String _formatTimestamp(int? millisecondsSinceEpoch) {
   return '${delta.inDays.abs()}d ago';
 }
 
+String? _formatDuration(int? durationMs) {
+  if (durationMs == null || durationMs < 0) {
+    return null;
+  }
+  if (durationMs < 1000) {
+    return '${durationMs}ms';
+  }
+  final Duration duration = Duration(milliseconds: durationMs);
+  if (duration.inMinutes < 1) {
+    return '${duration.inSeconds}s';
+  }
+  if (duration.inHours < 1) {
+    return '${duration.inMinutes}m';
+  }
+  return '${duration.inHours}h';
+}
+
+String? _resolveDeliveryLabel(
+  Map<String, dynamic> delivery,
+  Map<String, dynamic> run,
+) {
+  final String raw =
+      (delivery['status'] as String? ??
+              run['deliveryStatus'] as String? ??
+              run['announceStatus'] as String? ??
+              '')
+          .trim();
+  if (raw.isNotEmpty) {
+    return _formatGroupLabel(raw);
+  }
+  final bool? delivered = delivery['delivered'] as bool?;
+  if (delivered == null) {
+    return null;
+  }
+  return delivered ? 'Delivered' : 'Not delivered';
+}
+
 int? _readInt(dynamic value) {
   if (value is int) {
     return value;
@@ -1908,8 +2083,7 @@ List<String> _flattenSkillTokens(dynamic value) {
       return;
     }
     final String normalized = _cleanSkillText(item.toString());
-    if (normalized.isEmpty ||
-        normalized == 'null') {
+    if (normalized.isEmpty || normalized == 'null') {
       return;
     }
     if (!RegExp(r'[A-Za-z0-9]').hasMatch(normalized)) {
@@ -1951,7 +2125,10 @@ String _humanizeSkillToken(String raw) {
   return tokenMap[cleaned] ?? raw.trim();
 }
 
-String? _resolveSkillInputPath(Map<String, dynamic> skill, List<dynamic> missing) {
+String? _resolveSkillInputPath(
+  Map<String, dynamic> skill,
+  List<dynamic> missing,
+) {
   final String explicit =
       (skill['inputPath'] as String? ??
               skill['configPath'] as String? ??
@@ -2004,12 +2181,16 @@ String? _resolveMessageSummary(Map<String, dynamic> message) {
   final Map<String, dynamic> metadata = _readMap(
     message['metadata'] ?? message['meta'],
   );
-  final List<String> candidates = <String>[
-    message['summary'] as String? ?? '',
-    metadata['summary'] as String? ?? '',
-    metadata['workingOn'] as String? ?? '',
-    metadata['title'] as String? ?? '',
-  ].map((String value) => value.trim()).where((String value) => value.isNotEmpty).toList();
+  final List<String> candidates =
+      <String>[
+            message['summary'] as String? ?? '',
+            metadata['summary'] as String? ?? '',
+            metadata['workingOn'] as String? ?? '',
+            metadata['title'] as String? ?? '',
+          ]
+          .map((String value) => value.trim())
+          .where((String value) => value.isNotEmpty)
+          .toList();
   if (candidates.isEmpty) {
     return null;
   }
@@ -2033,7 +2214,9 @@ List<ChatToolCall> _resolveToolCalls(Map<String, dynamic> message) {
       continue;
     }
     final String type = (item['type'] as String? ?? '').trim().toLowerCase();
-    if (type.contains('tool') || type.contains('exec') || type.contains('step')) {
+    if (type.contains('tool') ||
+        type.contains('exec') ||
+        type.contains('step')) {
       rawToolCalls.add(item);
     }
   }
@@ -2320,6 +2503,7 @@ class GatewayHelloSnapshot {
         final Map<String, dynamic> heartbeat =
             agent['heartbeat'] as Map<String, dynamic>? ?? <String, dynamic>{};
         return CronJob(
+          id: ((agent['agentId'] as String? ?? 'main').trim()) + '-heartbeat',
           name: (agent['agentId'] as String? ?? 'main').trim() + ' heartbeat',
           schedule: (heartbeat['every'] as String? ?? 'heartbeat').trim(),
           nextRun: 'Managed by gateway heartbeat',
