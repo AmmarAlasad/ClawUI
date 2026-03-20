@@ -1,5 +1,8 @@
 # ClawUI
 
+<img width="2377" height="1536" alt="Gemini_Generated_Image_3uitew3uitew3uit" src="https://github.com/user-attachments/assets/4219ff14-0bc1-4aab-be10-340cee34f568" />
+
+
 ClawUI is a Flutter client for OpenClaw Gateway.
 
 The goal is simple: give OpenClaw a usable mobile-style control surface instead of forcing everything through terminal commands and raw HTTP calls. The app lets you connect to a gateway, save connection profiles, chat with the assistant, inspect sessions, look at devices and cron data, and surface installed skills in a way that feels like an operator console rather than a demo.
