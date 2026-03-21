@@ -72,13 +72,29 @@ class DevicesScreen extends StatelessWidget {
                       contentPadding: EdgeInsets.zero,
                       title: Text(item.name),
                       subtitle: Text('${item.platform} - ${item.lastSeen}'),
-                      trailing: Text(item.status),
+                      trailing: _DeviceStatusBadge(status: item.status),
                     ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: <Widget>[
+                        _DeviceInfoChip(
+                          icon: Icons.shield_outlined,
+                          label: item.role,
+                        ),
+                        if (item.requestId != null)
+                          _DeviceInfoChip(
+                            icon: Icons.key_rounded,
+                            label: item.requestId!,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
                     Row(
                       children: <Widget>[
                         Expanded(
                           child: OutlinedButton(
-                        onPressed: item.requestId == null
+                            onPressed: item.requestId == null
                                 ? null
                                 : () async {
                                     try {
@@ -87,7 +103,9 @@ class DevicesScreen extends StatelessWidget {
                                       );
                                     } catch (error) {
                                       if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
                                           SnackBar(
                                             content: Text(error.toString()),
                                           ),
@@ -101,7 +119,7 @@ class DevicesScreen extends StatelessWidget {
                         const SizedBox(width: 12),
                         Expanded(
                           child: FilledButton(
-                        onPressed: item.requestId == null
+                            onPressed: item.requestId == null
                                 ? null
                                 : () async {
                                     try {
@@ -110,7 +128,9 @@ class DevicesScreen extends StatelessWidget {
                                       );
                                     } catch (error) {
                                       if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
                                           SnackBar(
                                             content: Text(error.toString()),
                                           ),
@@ -148,7 +168,22 @@ class DevicesScreen extends StatelessWidget {
                       subtitle: Text(
                         '${item.platform} - Last seen ${item.lastSeen}',
                       ),
-                      trailing: Text(item.status),
+                      trailing: _DeviceStatusBadge(status: item.status),
+                    ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: <Widget>[
+                        _DeviceInfoChip(
+                          icon: Icons.shield_outlined,
+                          label: item.role,
+                        ),
+                        if (item.hasDeviceId)
+                          _DeviceInfoChip(
+                            icon: Icons.fingerprint_rounded,
+                            label: item.deviceId!,
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 12),
                     Align(
@@ -162,9 +197,7 @@ class DevicesScreen extends StatelessWidget {
                                 } catch (error) {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(error.toString()),
-                                      ),
+                                      SnackBar(content: Text(error.toString())),
                                     );
                                   }
                                 }
@@ -175,6 +208,75 @@ class DevicesScreen extends StatelessWidget {
                     ),
                   ],
                 ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DeviceStatusBadge extends StatelessWidget {
+  const _DeviceStatusBadge({required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final String normalized = status.trim().toLowerCase();
+    final Color color = switch (normalized) {
+      'pending approval' => const Color(0xFFF59E0B),
+      'trusted' || 'connected' => theme.colorScheme.primary,
+      'offline' => Colors.blueGrey,
+      _ => theme.colorScheme.outline,
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        status,
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _DeviceInfoChip extends StatelessWidget {
+  const _DeviceInfoChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icon, size: 14, color: theme.colorScheme.primary),
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 180),
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),

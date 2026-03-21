@@ -472,6 +472,30 @@ class DeviceInfo {
   final String role;
   final bool pendingApproval;
   final String? requestId;
+
+  bool get hasDeviceId => deviceId != null && deviceId!.trim().isNotEmpty;
+
+  DeviceInfo copyWith({
+    String? name,
+    String? platform,
+    String? status,
+    String? lastSeen,
+    String? deviceId,
+    String? role,
+    bool? pendingApproval,
+    String? requestId,
+  }) {
+    return DeviceInfo(
+      name: name ?? this.name,
+      platform: platform ?? this.platform,
+      status: status ?? this.status,
+      lastSeen: lastSeen ?? this.lastSeen,
+      deviceId: deviceId ?? this.deviceId,
+      role: role ?? this.role,
+      pendingApproval: pendingApproval ?? this.pendingApproval,
+      requestId: requestId ?? this.requestId,
+    );
+  }
 }
 
 class CronSummary {

@@ -1638,17 +1638,7 @@ class NetworkOpenClawRepository implements OpenClawRepository {
     List<DeviceInfo> pairingDevices,
     List<DeviceInfo> nodeDevices,
   ) {
-    final Map<String, DeviceInfo> merged = <String, DeviceInfo>{};
-    for (final DeviceInfo item in pairingDevices) {
-      merged['${item.name}|${item.platform}|${item.pendingApproval}'] = item;
-    }
-    for (final DeviceInfo item in nodeDevices) {
-      merged.putIfAbsent(
-        '${item.name}|${item.platform}|${item.pendingApproval}',
-        () => item,
-      );
-    }
-    return merged.values.toList();
+    return mergeOpenClawDevices(pairingDevices, nodeDevices);
   }
 
   List<SkillInfo> _parseSkills(Map<String, dynamic> payload) {
@@ -2243,6 +2233,148 @@ String _scopeKey(Uri uri) {
     RegExp(r'[^a-zA-Z0-9_]'),
     '_',
   );
+}
+
+List<DeviceInfo> mergeOpenClawDevices(
+  List<DeviceInfo> pairingDevices,
+  List<DeviceInfo> nodeDevices,
+) {
+  final Map<String, DeviceInfo> merged = <String, DeviceInfo>{};
+
+  for (final DeviceInfo item in pairingDevices) {
+    merged[_deviceMergeKey(item)] = item;
+  }
+
+  for (final DeviceInfo item in nodeDevices) {
+    final String key = _deviceMergeKey(item);
+    final DeviceInfo? existing = merged[key];
+    if (existing == null) {
+      merged[key] = item;
+      continue;
+    }
+    merged[key] = _mergeDevicePair(existing, item);
+  }
+
+  final List<DeviceInfo> result = merged.values.toList();
+  result.sort((DeviceInfo a, DeviceInfo b) {
+    if (a.pendingApproval != b.pendingApproval) {
+      return a.pendingApproval ? -1 : 1;
+    }
+    final int nameCompare = a.name.toLowerCase().compareTo(
+      b.name.toLowerCase(),
+    );
+    if (nameCompare != 0) {
+      return nameCompare;
+    }
+    return a.platform.toLowerCase().compareTo(b.platform.toLowerCase());
+  });
+  return result;
+}
+
+String _deviceMergeKey(DeviceInfo item) {
+  final String explicitId = (item.deviceId ?? '').trim().toLowerCase();
+  if (explicitId.isNotEmpty) {
+    return 'id:$explicitId';
+  }
+  final String normalizedName = item.name.trim().toLowerCase();
+  final String normalizedPlatform = item.platform.trim().toLowerCase();
+  return 'name:$normalizedName|platform:$normalizedPlatform';
+}
+
+DeviceInfo _mergeDevicePair(DeviceInfo primary, DeviceInfo secondary) {
+  final DeviceInfo preferred = _preferDeviceRecord(primary, secondary);
+  final DeviceInfo fallback = identical(preferred, primary)
+      ? secondary
+      : primary;
+  return preferred.copyWith(
+    status: _mergeDeviceStatus(primary, secondary, preferred: preferred),
+    lastSeen: _preferDeviceLastSeen(primary.lastSeen, secondary.lastSeen),
+    deviceId: preferred.hasDeviceId ? preferred.deviceId : fallback.deviceId,
+    role: preferred.role.trim().isNotEmpty ? preferred.role : fallback.role,
+    requestId: preferred.requestId ?? fallback.requestId,
+    pendingApproval: primary.pendingApproval || secondary.pendingApproval,
+  );
+}
+
+DeviceInfo _preferDeviceRecord(DeviceInfo left, DeviceInfo right) {
+  int score(DeviceInfo item) {
+    int value = 0;
+    if (item.pendingApproval) value += 8;
+    if (item.requestId != null && item.requestId!.trim().isNotEmpty) value += 4;
+    if (item.hasDeviceId) value += 2;
+    if (item.status.trim().toLowerCase() == 'trusted') value += 1;
+    return value;
+  }
+
+  return score(left) >= score(right) ? left : right;
+}
+
+String _mergeDeviceStatus(
+  DeviceInfo left,
+  DeviceInfo right, {
+  required DeviceInfo preferred,
+}) {
+  if (left.pendingApproval || right.pendingApproval) {
+    return 'Pending approval';
+  }
+  final Set<String> statuses = <String>{
+    left.status.trim().toLowerCase(),
+    right.status.trim().toLowerCase(),
+  };
+  if (statuses.contains('trusted')) {
+    return 'Trusted';
+  }
+  if (statuses.contains('connected')) {
+    return 'Connected';
+  }
+  if (statuses.contains('offline')) {
+    return 'Offline';
+  }
+  return preferred.status;
+}
+
+String _preferDeviceLastSeen(String left, String right) {
+  final int leftRank = _relativeLabelRank(left);
+  final int rightRank = _relativeLabelRank(right);
+  if (leftRank == rightRank) {
+    return left.length <= right.length ? left : right;
+  }
+  return leftRank <= rightRank ? left : right;
+}
+
+int _relativeLabelRank(String value) {
+  final String normalized = value.trim().toLowerCase();
+  if (normalized.isEmpty || normalized == 'unavailable') {
+    return 1 << 20;
+  }
+  if (normalized == 'now' || normalized == 'just now') {
+    return 0;
+  }
+  final RegExpMatch? compactMatch = RegExp(
+    r'(\d+)\s*([mhd])\s*ago',
+  ).firstMatch(normalized);
+  if (compactMatch != null) {
+    final int amount = int.parse(compactMatch.group(1)!);
+    return switch (compactMatch.group(2)) {
+      'm' => amount,
+      'h' => amount * 60,
+      'd' => amount * 60 * 24,
+      _ => 1 << 20,
+    };
+  }
+  final RegExpMatch? longMatch = RegExp(
+    r'(\d+)\s+(minute|minutes|hour|hours|day|days)\s+ago',
+  ).firstMatch(normalized);
+  if (longMatch != null) {
+    final int amount = int.parse(longMatch.group(1)!);
+    return switch (longMatch.group(2)) {
+      'minute' || 'minutes' => amount,
+      'hour' || 'hours' => amount * 60,
+      'day' || 'days' => amount * 60 * 24,
+      _ => 1 << 20,
+    };
+  }
+  return 1 << 20;
 }
 
 String _extractMessageText(Map<String, dynamic>? message) {
