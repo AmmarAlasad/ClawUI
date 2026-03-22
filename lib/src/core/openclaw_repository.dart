@@ -1109,18 +1109,17 @@ class NetworkOpenClawRepository implements OpenClawRepository {
     final List<dynamic> rawSessions = _readList(details['sessions']);
     final List<SessionInfo> sessions = rawSessions.map((dynamic item) {
       final Map<String, dynamic> session = item as Map<String, dynamic>;
-      final String label =
-          (session['label'] as String? ??
-                  session['displayName'] as String? ??
-                  session['key'] as String? ??
-                  'Session')
-              .trim();
-      final String kind = (session['kind'] as String? ?? 'session').trim();
+      final int? updatedAtMs = resolveSessionUpdatedAtMs(session);
       return SessionInfo(
-        key: (session['key'] as String? ?? label).trim(),
-        title: label,
-        updatedAgo: _formatTimestamp(_readInt(session['updatedAt'])),
-        state: kind,
+        key:
+            (session['key'] as String? ??
+                    session['sessionKey'] as String? ??
+                    resolveSessionTitle(session))
+                .trim(),
+        title: resolveSessionTitle(session),
+        updatedAgo: _formatTimestamp(updatedAtMs),
+        state: resolveSessionState(session),
+        updatedAtMs: updatedAtMs,
       );
     }).toList();
     if (sessions.isNotEmpty) {
@@ -1505,38 +1504,24 @@ class NetworkOpenClawRepository implements OpenClawRepository {
     );
     return rawSessions.map((dynamic item) {
       final Map<String, dynamic> session = item as Map<String, dynamic>;
-      final int? updatedAtMs =
-          _readInt(session['updatedAt']) ??
-          _readInt(session['updatedAtMs']) ??
-          _readInt(session['lastMessageAt']) ??
-          _readInt(session['lastMessageAtMs']);
+      final int? updatedAtMs = resolveSessionUpdatedAtMs(session);
       return SessionInfo(
         key:
             (session['key'] as String? ??
                     session['sessionKey'] as String? ??
                     session['id'] as String? ??
-                    titleFromSession(session))
+                    resolveSessionTitle(session))
                 .trim(),
-        title: titleFromSession(session),
+        title: resolveSessionTitle(session),
         updatedAgo: _formatTimestamp(updatedAtMs),
-        state:
-            (session['kind'] as String? ??
-                    session['state'] as String? ??
-                    session['status'] as String? ??
-                    'session')
-                .trim(),
+        state: resolveSessionState(session),
         updatedAtMs: updatedAtMs,
       );
     }).toList();
   }
 
   String titleFromSession(Map<String, dynamic> session) {
-    return (session['label'] as String? ??
-            session['title'] as String? ??
-            session['displayName'] as String? ??
-            session['key'] as String? ??
-            'Session')
-        .trim();
+    return resolveSessionTitle(session);
   }
 
   List<DeviceInfo> _parsePairingDevices(Map<String, dynamic> payload) {
@@ -1969,6 +1954,62 @@ String? _formatGatewayErrorMessage(String? rawMessage, String? detailCode) {
     return 'Gateway connection failed.';
   }
   return message;
+}
+
+String resolveSessionTitle(Map<String, dynamic> session) {
+  final List<String> candidates = <String>[
+    session['label'] as String? ?? '',
+    session['title'] as String? ?? '',
+    session['displayName'] as String? ?? '',
+    session['subject'] as String? ?? '',
+    session['room'] as String? ?? '',
+    session['space'] as String? ?? '',
+    session['key'] as String? ?? '',
+    session['sessionKey'] as String? ?? '',
+    session['id'] as String? ?? '',
+  ];
+  for (final String candidate in candidates) {
+    final String value = candidate.trim();
+    if (value.isNotEmpty) {
+      return value;
+    }
+  }
+  return 'Session';
+}
+
+String resolveSessionState(Map<String, dynamic> session) {
+  final List<String> candidates = <String>[
+    session['statusLabel'] as String? ?? '',
+    session['stateLabel'] as String? ?? '',
+    session['status'] as String? ?? '',
+    session['state'] as String? ?? '',
+    session['kind'] as String? ?? '',
+    session['surface'] as String? ?? '',
+  ];
+  for (final String candidate in candidates) {
+    final String value = candidate.trim();
+    if (value.isNotEmpty) {
+      return value;
+    }
+  }
+  if (session['abortedLastRun'] as bool? ?? false) {
+    return 'Aborted';
+  }
+  if (session['systemSent'] as bool? ?? false) {
+    return 'System';
+  }
+  return 'session';
+}
+
+int? resolveSessionUpdatedAtMs(Map<String, dynamic> session) {
+  return _readInt(session['updatedAt']) ??
+      _readInt(session['updatedAtMs']) ??
+      _readInt(session['lastMessageAt']) ??
+      _readInt(session['lastMessageAtMs']) ??
+      _readInt(session['createdAt']) ??
+      _readInt(session['createdAtMs']) ??
+      _readInt(session['timestamp']) ??
+      _readInt(session['timestampMs']);
 }
 
 String _formatSchedule(Map<String, dynamic> schedule) {
