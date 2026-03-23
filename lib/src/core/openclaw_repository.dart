@@ -1006,41 +1006,7 @@ class NetworkOpenClawRepository implements OpenClawRepository {
   }
 
   List<CronRun> _parseCronRuns(Map<String, dynamic> payload) {
-    final Map<String, dynamic> details = _unwrapGatewayResult(payload);
-    final List<dynamic> rawRuns = _readList(details['runs']);
-    return rawRuns.map((dynamic item) {
-      final Map<String, dynamic> run = item as Map<String, dynamic>;
-      final String statusRaw =
-          (run['status'] as String? ?? run['lastStatus'] as String? ?? '')
-              .trim()
-              .toLowerCase();
-      final Map<String, dynamic> delivery = _readMap(
-        run['delivery'] ?? run['deliveryStatus'],
-      );
-      final int? startedAt =
-          _readInt(run['startedAtMs']) ??
-          _readInt(run['ts']) ??
-          _readInt(run['createdAtMs']) ??
-          _readInt(run['runAtMs']);
-      final int? durationMs =
-          _readInt(run['durationMs']) ?? _readInt(run['elapsedMs']);
-      final String summaryRaw =
-          (run['summary'] as String? ?? run['message'] as String? ?? '').trim();
-      return CronRun(
-        id: (run['runId'] as String? ?? run['id'] as String? ?? '$startedAt')
-            .trim(),
-        startedAtLabel: _formatTimestamp(startedAt),
-        status: switch (statusRaw) {
-          'ok' || 'success' => CronRunStatus.ok,
-          'error' || 'failed' => CronRunStatus.error,
-          'skipped' => CronRunStatus.skipped,
-          _ => CronRunStatus.unknown,
-        },
-        durationLabel: _formatDuration(durationMs),
-        deliveryLabel: _resolveDeliveryLabel(delivery, run),
-        summary: summaryRaw.isEmpty ? null : summaryRaw,
-      );
-    }).toList();
+    return parseCronRunsFromPayload(payload);
   }
 
   List<DeviceInfo> _parseDevices(
@@ -2065,10 +2031,35 @@ String? _resolveDeliveryLabel(
       (delivery['status'] as String? ??
               run['deliveryStatus'] as String? ??
               run['announceStatus'] as String? ??
+              run['deliveryMode'] as String? ??
               '')
           .trim();
   if (raw.isNotEmpty) {
+    final String normalized = raw.toLowerCase();
+    if (normalized == 'ok' || normalized == 'success') {
+      final String mode = (delivery['mode'] as String? ?? '').trim();
+      if (mode.isNotEmpty) {
+        return '${_formatGroupLabel(mode)} delivered';
+      }
+      return 'Delivered';
+    }
+    if (normalized == 'error' || normalized == 'failed') {
+      return 'Delivery failed';
+    }
     return _formatGroupLabel(raw);
+  }
+  final String mode =
+      (delivery['mode'] as String? ?? run['deliveryMode'] as String? ?? '')
+          .trim();
+  if (mode.isNotEmpty) {
+    final bool? delivered = delivery['delivered'] as bool?;
+    if (delivered == true) {
+      return '${_formatGroupLabel(mode)} delivered';
+    }
+    if (delivered == false) {
+      return '${_formatGroupLabel(mode)} not delivered';
+    }
+    return _formatGroupLabel(mode);
   }
   final bool? delivered = delivery['delivered'] as bool?;
   if (delivered == null) {
@@ -2092,6 +2083,86 @@ String _resolveNextRunLabel(List<CronJob> cronJobs) {
     return 'No cron jobs found';
   }
   return '${cronJobs.first.name} ${cronJobs.first.nextRun}';
+}
+
+List<CronRun> parseCronRunsFromPayload(Map<String, dynamic> payload) {
+  final Map<String, dynamic> details = _unwrapGatewayResult(payload);
+  final List<dynamic> rawRuns = _readList(details['runs']);
+  return rawRuns.map((dynamic item) {
+    final Map<String, dynamic> run = item as Map<String, dynamic>;
+    final String statusRaw = _resolveCronRunStatus(run);
+    final Map<String, dynamic> delivery = _readMap(
+      run['delivery'] ?? run['deliveryStatus'] ?? run['deliver'],
+    );
+    final int? startedAt =
+        _readInt(run['startedAtMs']) ??
+        _readInt(run['ts']) ??
+        _readInt(run['createdAtMs']) ??
+        _readInt(run['runAtMs']) ??
+        _readInt(run['startedAt']);
+    final int? durationMs =
+        _readInt(run['durationMs']) ??
+        _readInt(run['elapsedMs']) ??
+        _readInt(run['runtimeMs']) ??
+        _readInt(run['completedInMs']);
+    final String? summary = _resolveCronRunSummary(run);
+    return CronRun(
+      id: (run['runId'] as String? ?? run['id'] as String? ?? '$startedAt')
+          .trim(),
+      startedAtLabel: _formatTimestamp(startedAt),
+      status: switch (statusRaw) {
+        'ok' || 'success' || 'completed' => CronRunStatus.ok,
+        'error' || 'failed' || 'failure' => CronRunStatus.error,
+        'skipped' || 'skip' => CronRunStatus.skipped,
+        _ => CronRunStatus.unknown,
+      },
+      durationLabel: _formatDuration(durationMs),
+      deliveryLabel: _resolveDeliveryLabel(delivery, run),
+      summary: summary,
+    );
+  }).toList();
+}
+
+String _resolveCronRunStatus(Map<String, dynamic> run) {
+  final Map<String, dynamic> state = _readMap(run['state']);
+  final Map<String, dynamic> result = _readMap(run['result']);
+  final List<String> candidates = <String>[
+    run['status'] as String? ?? '',
+    run['lastStatus'] as String? ?? '',
+    state['status'] as String? ?? '',
+    state['lastStatus'] as String? ?? '',
+    result['status'] as String? ?? '',
+    result['lastStatus'] as String? ?? '',
+  ];
+  for (final String candidate in candidates) {
+    final String normalized = candidate.trim().toLowerCase();
+    if (normalized.isNotEmpty) {
+      return normalized;
+    }
+  }
+  return '';
+}
+
+String? _resolveCronRunSummary(Map<String, dynamic> run) {
+  final Map<String, dynamic> state = _readMap(run['state']);
+  final Map<String, dynamic> result = _readMap(run['result']);
+  final Map<String, dynamic> error = _readMap(run['error'] ?? result['error']);
+  final List<String> candidates = <String>[
+    run['summary'] as String? ?? '',
+    run['message'] as String? ?? '',
+    state['summary'] as String? ?? '',
+    state['message'] as String? ?? '',
+    result['summary'] as String? ?? '',
+    result['message'] as String? ?? '',
+    error['message'] as String? ?? '',
+  ];
+  for (final String candidate in candidates) {
+    final String value = candidate.trim();
+    if (value.isNotEmpty) {
+      return value;
+    }
+  }
+  return null;
 }
 
 bool _isApprovalRequiredMessage(String message) {
