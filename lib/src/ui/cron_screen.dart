@@ -134,6 +134,28 @@ class _CronJobCard extends StatelessWidget {
               const SizedBox(height: 10),
               Text(job.schedule),
               const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  if (!job.enabled)
+                    const _MetaBadge(label: 'Disabled', color: Colors.blueGrey),
+                  if (job.targetLabel != null)
+                    _MetaBadge(
+                      label: job.targetLabel!,
+                      color: theme.colorScheme.primary,
+                    ),
+                  if (job.deliveryLabel != null)
+                    _MetaBadge(
+                      label: job.deliveryLabel!,
+                      color: const Color(0xFFF59E0B),
+                    ),
+                ],
+              ),
+              if (!job.enabled ||
+                  job.targetLabel != null ||
+                  job.deliveryLabel != null)
+                const SizedBox(height: 10),
               Text('Next run: ${job.nextRun}'),
               Text('Last run: ${job.lastRun}'),
             ],
@@ -273,6 +295,25 @@ class _HealthBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(health.name),
+    );
+  }
+}
+
+class _MetaBadge extends StatelessWidget {
+  const _MetaBadge({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(label),
     );
   }
 }

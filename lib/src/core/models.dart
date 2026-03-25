@@ -518,6 +518,9 @@ class CronJob {
     required this.nextRun,
     required this.lastRun,
     required this.health,
+    this.enabled = true,
+    this.deliveryLabel,
+    this.targetLabel,
   });
 
   final String id;
@@ -526,6 +529,9 @@ class CronJob {
   final String nextRun;
   final String lastRun;
   final JobHealth health;
+  final bool enabled;
+  final String? deliveryLabel;
+  final String? targetLabel;
 }
 
 class CronRun {

@@ -310,6 +310,8 @@ class DemoOpenClawRepository implements OpenClawRepository {
         nextRun: '12m',
         lastRun: '3m ago',
         health: JobHealth.healthy,
+        deliveryLabel: 'announce',
+        targetLabel: 'isolated · agent turn',
       ),
       CronJob(
         id: 'tailnet-prune',
@@ -318,6 +320,8 @@ class DemoOpenClawRepository implements OpenClawRepository {
         nextRun: '2h',
         lastRun: '4h ago',
         health: JobHealth.warning,
+        deliveryLabel: 'none',
+        targetLabel: 'isolated · agent turn',
       ),
       CronJob(
         id: 'rebuild-embeddings',
@@ -326,6 +330,9 @@ class DemoOpenClawRepository implements OpenClawRepository {
         nextRun: 'Tonight 02:30',
         lastRun: '1d ago',
         health: JobHealth.stalled,
+        enabled: false,
+        deliveryLabel: 'webhook',
+        targetLabel: 'main · system event',
       ),
     ];
     return OperatorSnapshot(
@@ -971,38 +978,7 @@ class NetworkOpenClawRepository implements OpenClawRepository {
   }
 
   List<CronJob> _parseCronJobs(Map<String, dynamic> payload) {
-    final Map<String, dynamic> details = _unwrapGatewayResult(payload);
-    final List<dynamic> rawJobs = _readList(details['jobs']);
-    return rawJobs.map((dynamic item) {
-      final Map<String, dynamic> job = item as Map<String, dynamic>;
-      final Map<String, dynamic> schedule =
-          job['schedule'] as Map<String, dynamic>? ?? <String, dynamic>{};
-      final Map<String, dynamic> state =
-          job['state'] as Map<String, dynamic>? ?? <String, dynamic>{};
-      final String lastStatus = (state['lastStatus'] as String? ?? '')
-          .trim()
-          .toLowerCase();
-      return CronJob(
-        id:
-            (job['jobId'] as String? ??
-                    job['id'] as String? ??
-                    job['name'] as String? ??
-                    'cron-job')
-                .trim(),
-        name: (job['name'] as String? ?? job['id'] as String? ?? 'cron-job')
-            .trim(),
-        schedule: _formatSchedule(schedule),
-        nextRun: _formatTimestamp(
-          _readInt(job['nextRunAtMs']) ?? _readInt(state['nextRunAtMs']),
-        ),
-        lastRun: _formatTimestamp(_readInt(state['lastRunAtMs'])),
-        health: switch (lastStatus) {
-          'ok' || 'healthy' || 'success' => JobHealth.healthy,
-          'failed' || 'error' => JobHealth.stalled,
-          _ => JobHealth.warning,
-        },
-      );
-    }).toList();
+    return parseCronJobsFromPayload(payload);
   }
 
   List<CronRun> _parseCronRuns(Map<String, dynamic> payload) {
@@ -2085,6 +2061,47 @@ String _resolveNextRunLabel(List<CronJob> cronJobs) {
   return '${cronJobs.first.name} ${cronJobs.first.nextRun}';
 }
 
+List<CronJob> parseCronJobsFromPayload(Map<String, dynamic> payload) {
+  final Map<String, dynamic> details = _unwrapGatewayResult(payload);
+  final List<dynamic> rawJobs = _readList(details['jobs']);
+  return rawJobs.map((dynamic item) {
+    final Map<String, dynamic> job = item as Map<String, dynamic>;
+    final Map<String, dynamic> schedule =
+        job['schedule'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final Map<String, dynamic> state =
+        job['state'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final Map<String, dynamic> delivery = _readMap(job['delivery']);
+    final Map<String, dynamic> payloadSpec = _readMap(job['payload']);
+    final String lastStatus = (state['lastStatus'] as String? ?? '')
+        .trim()
+        .toLowerCase();
+    final bool enabled = job['enabled'] as bool? ?? true;
+    return CronJob(
+      id:
+          (job['jobId'] as String? ??
+                  job['id'] as String? ??
+                  job['name'] as String? ??
+                  'cron-job')
+              .trim(),
+      name: (job['name'] as String? ?? job['id'] as String? ?? 'cron-job')
+          .trim(),
+      schedule: _formatSchedule(schedule),
+      nextRun: _formatTimestamp(
+        _readInt(job['nextRunAtMs']) ?? _readInt(state['nextRunAtMs']),
+      ),
+      lastRun: _formatTimestamp(_readInt(state['lastRunAtMs'])),
+      health: switch (lastStatus) {
+        'ok' || 'healthy' || 'success' => JobHealth.healthy,
+        'failed' || 'error' => JobHealth.stalled,
+        _ => JobHealth.warning,
+      },
+      enabled: enabled,
+      deliveryLabel: _resolveCronJobDeliveryLabel(delivery),
+      targetLabel: _resolveCronJobTargetLabel(job, payloadSpec),
+    );
+  }).toList();
+}
+
 List<CronRun> parseCronRunsFromPayload(Map<String, dynamic> payload) {
   final Map<String, dynamic> details = _unwrapGatewayResult(payload);
   final List<dynamic> rawRuns = _readList(details['runs']);
@@ -2141,6 +2158,46 @@ String _resolveCronRunStatus(Map<String, dynamic> run) {
     }
   }
   return '';
+}
+
+String? _resolveCronJobDeliveryLabel(Map<String, dynamic> delivery) {
+  final String mode = (delivery['mode'] as String? ?? '').trim();
+  if (mode.isEmpty) {
+    return null;
+  }
+  final String channel = (delivery['channel'] as String? ?? '').trim();
+  final String to = (delivery['to'] as String? ?? '').trim();
+  final List<String> extras = <String>[];
+  if (channel.isNotEmpty) {
+    extras.add(channel);
+  }
+  if (to.isNotEmpty) {
+    extras.add(to);
+  }
+  final String label = _formatGroupLabel(mode).toLowerCase();
+  if (extras.isEmpty) {
+    return label;
+  }
+  return '$label · ${extras.join(' → ')}';
+}
+
+String? _resolveCronJobTargetLabel(
+  Map<String, dynamic> job,
+  Map<String, dynamic> payload,
+) {
+  final String sessionTarget = (job['sessionTarget'] as String? ?? '').trim();
+  final String payloadKind = (payload['kind'] as String? ?? '').trim();
+  if (sessionTarget.isEmpty && payloadKind.isEmpty) {
+    return null;
+  }
+  final List<String> parts = <String>[];
+  if (sessionTarget.isNotEmpty) {
+    parts.add(_formatGroupLabel(sessionTarget).toLowerCase());
+  }
+  if (payloadKind.isNotEmpty) {
+    parts.add(_formatGroupLabel(payloadKind).toLowerCase());
+  }
+  return parts.join(' · ');
 }
 
 String? _resolveCronRunSummary(Map<String, dynamic> run) {
@@ -2222,7 +2279,11 @@ String _resolveSkillGroup(Map<String, dynamic> skill) {
 }
 
 String _formatGroupLabel(String raw) {
-  return raw
+  final String normalized = raw.replaceAllMapped(
+    RegExp(r'([a-z0-9])([A-Z])'),
+    (Match match) => '${match.group(1)} ${match.group(2)}',
+  );
+  return normalized
       .split(RegExp(r'[-_]+'))
       .where((String part) => part.trim().isNotEmpty)
       .map((String part) {
