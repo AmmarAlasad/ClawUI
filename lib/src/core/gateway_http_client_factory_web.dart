@@ -1,6 +1,6 @@
-// ignore_for_file: deprecated_member_use
+import 'dart:js_interop';
 
-import 'dart:html' as html;
+import 'package:web/web.dart' as web;
 
 import 'gateway_http_client_base.dart';
 
@@ -16,15 +16,23 @@ class _WebGatewayHttpClient implements GatewayHttpClient {
     Map<String, String> headers = const <String, String>{},
     String? body,
   }) async {
-    final html.HttpRequest response = await html.HttpRequest.request(
-      uri.toString(),
-      method: method,
-      requestHeaders: headers,
-      sendData: body,
-    );
+    final web.Headers requestHeaders = web.Headers();
+    headers.forEach(requestHeaders.set);
+
+    final web.Response response = await web.window.fetch(
+      uri.toString().toJS,
+      web.RequestInit(
+        method: method,
+        headers: requestHeaders,
+        body: body?.toJS,
+      ),
+    ).toDart;
+
+    final String responseBody = (await response.text().toDart).toDart;
+
     return GatewayHttpResponse(
-      statusCode: response.status ?? 0,
-      body: response.responseText ?? '',
+      statusCode: response.status,
+      body: responseBody,
     );
   }
 }

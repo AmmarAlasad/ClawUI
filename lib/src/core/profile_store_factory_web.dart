@@ -1,6 +1,4 @@
-// ignore_for_file: deprecated_member_use
-
-import 'dart:html' as html;
+import 'package:web/web.dart' as web;
 
 import 'models.dart';
 import 'profile_store.dart';
@@ -14,12 +12,12 @@ ConnectionProfileStore createConnectionProfileStore() {
 class _BrowserConnectionProfileStore implements ConnectionProfileStore {
   @override
   Future<void> clear() async {
-    html.window.localStorage.remove(_profileStorageKey);
+    web.window.localStorage.removeItem(_profileStorageKey);
   }
 
   @override
   Future<ConnectionProfile?> load() async {
-    final String? raw = html.window.localStorage[_profileStorageKey];
+    final String? raw = web.window.localStorage.getItem(_profileStorageKey);
     if (raw == null || raw.isEmpty) {
       return null;
     }
@@ -28,6 +26,6 @@ class _BrowserConnectionProfileStore implements ConnectionProfileStore {
 
   @override
   Future<void> save(ConnectionProfile profile) async {
-    html.window.localStorage[_profileStorageKey] = profile.encode();
+    web.window.localStorage.setItem(_profileStorageKey, profile.encode());
   }
 }

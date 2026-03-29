@@ -11,6 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
   cryptography: ^2.7.0
+  web: ^1.1.1
   flutter_secure_storage: ^9.2.4
   path_provider: ^2.1.5
   flutter_chat_ui: ^2.11.1
